@@ -1,22 +1,36 @@
 import httpx
+from typing import List
 
-import json
+MODEL = "qwen3:8b"
+OLLAMA_URL = "http://localhost:11434/api/chat"
 
-first_message = {"model": "qwen3:8b",
-                 "messages": [
-                     {"role": "user",
-                      "content": "Why is the sky blue? Answer briefly without thinking."}
-                 ],
-                 "stream": False,
-                 "think": False}
+def chat(messages: List[dict]) -> str:
+    """
+    Send message to the local Ollama model and returns 
+    the assistant reply
+    """
+    payload = {"model": MODEL,
+               "stream": False,
+               "think": False,
+               "messages": messages
+    }
+    # Error handling needs work
+    try:
+        response = httpx.post(
+            OLLAMA_URL,
+            json=payload, timeout=60)
+        if response.status_code == 200:
+            return response.json()["message"]["content"]
+        else:
+            return f"Recived: {response.status_code}"
+    except BaseException as e:
+        return str(e)
 
-
-response = httpx.post(
-    "http://localhost:11434/api/chat",
-    json=first_message, timeout=120)
 
 if __name__ == "__main__":
-    print(response)
-    print(response.status_code)
-    print(response.text)
+    messages = [
+    {"role": "user",
+    "content": "Why is the sky blue? Answer briefly without thinking."}
+            ]
+    print(chat(messages))
 

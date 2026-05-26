@@ -19,3 +19,20 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
   - Underlying cause of the slow CPU run: NVIDIA driver broken (kernel `6.17.0-29` missing matching `linux-modules-nvidia-595-open` package). Diagnosed and noted a fix to apply via sudo user.
 - **First successful response**: 200 OK, qwen3:8b answered, ~5 tok/s on CPU. Goal now: parse with `response.json()` and extract just `message.content`.
 - **Next**: clean response parsing, then handle qwen3's `<think>...</think>` blocks (or switch to `qwen3-nothink`).
+
+---
+
+### 2026-05-26 — Response parsing + first `chat()` wrapper
+
+- GPU driver fix confirmed working (RTX 4060 visible, driver 595.71.05, CUDA 13.2). Ollama back on GPU.
+- **Response parsing**: switched from `response.text` (raw JSON string) to `response.json()["message"]["content"]`. Detour through Python inspection tools (`type`, `dir`, `vars`, `pprint.pp`) to map the response shape interactively.
+- **Tooling refresher**: covered `python -i`, `python -c`, `python -m pdb`, and `breakpoint()`. Notes added to `notes.md` as a cheatsheet — three sections: object inspection, REPL entry points, pdb commands.
+- **First abstraction — `chat(messages: list[dict]) -> str`**:
+  - Lifted `MODEL` and `OLLAMA_URL` to module-level constants.
+  - Function builds payload, POSTs, returns just the assistant content.
+  - Side effect: `import agent` no longer hits the network — sanity check via `python -c "import agent"` works.
+- **First error-handling attempt (parked)**:
+  - Wrapped in `try/except BaseException`, returned status code or exception text as a string on failure.
+  - **Critique surfaced (not yet applied)**: function lies about return type — error strings and success strings are indistinguishable, will poison conversation history downstream. `BaseException` swallows `KeyboardInterrupt`.
+  - **Recommended direction for next time**: drop the try/except, use `response.raise_for_status()`, let exceptions propagate. Design a real error model only when a caller actually needs one.
+- **Next**: revisit error handling (Option A: let it raise), then move to multi-turn conversation (append assistant reply to `messages` and loop).
