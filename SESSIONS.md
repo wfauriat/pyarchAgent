@@ -1,0 +1,21 @@
+# Session log
+
+Lightweight running notes. Append-only — past entries are history, don't tidy them.
+
+---
+
+### 2026-05-26 — Project setup + first Ollama call
+
+- Created `projects/agentBuilding/` with `CLAUDE.md` (intent + tutor work mode + session-log convention).
+- Branched off `main` into `project/agent-building` to keep this work separable in the larger training repo.
+- First commit landed. Practiced commit hygiene: subject ≤50 chars, imperative mood, blank line before body — amended once to fix structure.
+- **First brick (in progress)**: single HTTP POST to Ollama's `/api/chat` endpoint, no abstractions, hardcoded values.
+  - Chose `httpx` over `requests` (matches a future deployment target that uses httpx + OpenAI API + Kerberos).
+  - Chose Ollama's *native* API over its OpenAI-compatible endpoint, deliberately — to feel provider variance before designing any wrapper.
+- **Bugs hit along the way**:
+  - 405 on `/api/chat` in browser → method confusion (GET vs POST). Status-code mental model installed.
+  - 400 from server → double JSON encoding: passed `json=json.dumps(dict)` instead of `json=dict`. Learned `httpx`'s `json=` serializes for you.
+  - Timeout → httpx default is 5s; bumped to 120 to survive CPU inference.
+  - Underlying cause of the slow CPU run: NVIDIA driver broken (kernel `6.17.0-29` missing matching `linux-modules-nvidia-595-open` package). Diagnosed and noted a fix to apply via sudo user.
+- **First successful response**: 200 OK, qwen3:8b answered, ~5 tok/s on CPU. Goal now: parse with `response.json()` and extract just `message.content`.
+- **Next**: clean response parsing, then handle qwen3's `<think>...</think>` blocks (or switch to `qwen3-nothink`).
