@@ -192,3 +192,30 @@ Python's built-in interactive debugger. Pause execution, inspect state, step thr
 - At `(Pdb)`, commands take priority over variable names. To inspect a variable named `n` or `c`, use `p n` or prefix with `!` (e.g. `!n = 5`) to force "treat as Python."
 - You can run *any* Python at the prompt — assignments, method calls, imports. Current frame's locals/globals are all live.
 - `Enter` on an empty line repeats the last command (handy when stepping with `n`).
+
+---
+
+## IntelliSense in VSCode
+
+Suggestions are off by default (see `.vscode/settings.json`). Summon them manually.
+
+### Keybindings
+
+| Key | What it does |
+| --- | --- |
+| `Ctrl+Space` | Trigger suggestion popup (methods, vars, classes in scope) |
+| `Ctrl+Shift+Space` | Trigger parameter hints (function signature) |
+| `Esc` | Dismiss popup without accepting |
+| `Tab` / `Enter` | Accept highlighted suggestion |
+
+> On Linux, `Ctrl+Space` is often grabbed by IBus/fcitx for input-method switching. If it doesn't fire, unbind at the OS level or rebind `editor.action.triggerSuggest` in VSCode.
+
+### Suggestion icons
+
+| Icon | Meaning |
+| --- | --- |
+| ƒ (purple) | function / method |
+| ◇ (blue) | variable |
+| ▣ (orange) | class |
+| ⬡ (green) | module |
+| 🔑 (yellow) | keyword |
