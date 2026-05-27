@@ -100,3 +100,14 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
 - **Error-message-specificity principle (worth keeping):** exception *types* are the backend-agnostic abstraction; exception *messages* should be backend-specific diagnostics. Removing the backend name from messages would erase useful information from tracebacks once multiple backends coexist.
 - **Doc trail:** `notes.md` still contains three `import agent` cheatsheet examples — idiom-level, not strictly wrong, but candidates for refresh to `import ollama_backend` next time they're touched.
 - **Next:** multi-turn conversation history (new session). Caller-side: append assistant reply to `messages`, loop. Likely the first place a long-lived `httpx.Client` gets passed in for real.
+
+---
+
+### 2026-05-27 — Multi-turn loop in `main()`, system prompt
+
+- **First REPL loop**: `main()` with local `messages: list[dict]`, `with httpx.Client() as client:` around a `while True`, `input("> ")` per turn. EOF (`Ctrl+D`) and `KeyboardInterrupt` (`Ctrl+C`) caught as a tuple and treated as clean exits; `/quit` and case-insensitive `quit` also break. Client now persists across turns — first real use of the injection seam added last session.
+- **State-management design**: build `user_msg` first, call `chat(messages=[*messages, user_msg], client=client)`, *then* append both `user_msg` and assistant reply to `messages`. If `chat()` raises, `messages` is unchanged — no orphaned user turn in history. The `[*messages, user_msg]` idiom is shallow-copy-plus-append in one expression.
+- **System prompt**: added `PROMPT_SYSTEM` as a module-level constant alongside `MODEL` / `OLLAMA_URL`; prepended as `{"role": "system", ...}` before the loop starts. Empirically confirmed qwen3:8b honours it (pirate-persona test).
+- **Idioms picked up**: implicit string concatenation inside parens (`( "...a" " ...b" )`) replacing backslash line continuation — same trick already used in the `BackendResponseError` f-string.
+- **Parked**: promoting the system prompt to a `chat(..., system: str | None = None)` keyword arg. Today `main()` is the only caller; lift it into `chat()` when a second caller wants one without managing the messages list itself.
+- **Next**: pick one of — structured return type (`@dataclass ChatResult`), second backend (Anthropic SDK), or first tool-calling scaffolding.

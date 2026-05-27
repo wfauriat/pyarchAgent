@@ -4,6 +4,12 @@ MODEL = "qwen3:8b"
 OLLAMA_URL = "http://localhost:11434/api/chat"
 REQUEST_TIMEOUT = 60  # seconds
 
+PROMPT_SYSTEM = (
+    "you are a helpful assistant that answers questions and"
+    " provides information. Answer like a pirate."
+)
+
+
 class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
 class BackendResponseError(BackendError): pass
@@ -53,10 +59,31 @@ def chat(
         raise BackendConnectionError(f"Could not reach Ollama at {url}") from e
 
 
-if __name__ == "__main__":
-    messages = [
-    {"role": "user",
-    "content": "Why is the sky blue? Answer briefly without thinking."}
-            ]
-    print(chat(messages))
+def main() -> None:
 
+    messages: list[dict] = []
+    messages.append({"role":"system", "content":PROMPT_SYSTEM})
+    with httpx.Client() as client:
+        while True:
+            print("="*80)
+            print("User:")
+            print("="*80)
+            try:
+                prompt = input("> ")
+                if prompt.strip().lower() == "quit" or prompt == "/quit":
+                    print("\nbye")
+                    break
+                user_msg = {"role":"user", "content":prompt}
+                reply = chat(messages=[*messages, user_msg], client=client)
+                messages.append(user_msg)
+                messages.append({"role":"assistant", "content":reply})
+                print("\n", "="*80)
+                print("Assistant:")
+                print("="*80)
+                print(reply, "\n")
+            except (KeyboardInterrupt, EOFError):
+                print("\nbye")
+                break
+
+if __name__ == "__main__":
+    main()
