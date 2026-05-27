@@ -1,4 +1,6 @@
 import httpx
+from dataclasses import dataclass 
+
 
 MODEL = "qwen3:8b"
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -10,9 +12,16 @@ PROMPT_SYSTEM = (
 )
 
 
+@dataclass(frozen=True)
+class ChatResult:
+    content: str
+    tokens_in: int
+    tokens_out: int
+
 class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
 class BackendResponseError(BackendError): pass
+
 
 def chat(
     messages: list[dict],
@@ -22,7 +31,7 @@ def chat(
     timeout: float = REQUEST_TIMEOUT,
     client: httpx.Client | None = None,
     think: bool = False,
-) -> str:
+) -> ChatResult:
     """
     Send messages to the local Ollama model and return the assistant reply.
 
@@ -49,7 +58,10 @@ def chat(
         else:
             response = client.post(url, json=payload, timeout=timeout)
         response.raise_for_status()
-        return response.json()["message"]["content"]
+        data = response.json()
+        return ChatResult(content=data["message"]["content"],
+                          tokens_in=data["prompt_eval_count"],
+                          tokens_out=data["eval_count"])
     except httpx.HTTPStatusError as e:
         raise BackendResponseError(
             f"Ollama returned HTTP {e.response.status_code}: "
@@ -76,11 +88,13 @@ def main() -> None:
                 user_msg = {"role":"user", "content":prompt}
                 reply = chat(messages=[*messages, user_msg], client=client)
                 messages.append(user_msg)
-                messages.append({"role":"assistant", "content":reply})
+                messages.append({"role":"assistant", "content":reply.content})
                 print("\n", "="*80)
                 print("Assistant:")
                 print("="*80)
-                print(reply, "\n")
+                print(reply.content, "\n")
+                print(f"tokens_in: {reply.tokens_in}, "
+                      f"tokens_out: {reply.tokens_out}")
             except (KeyboardInterrupt, EOFError):
                 print("\nbye")
                 break

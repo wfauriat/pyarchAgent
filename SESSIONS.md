@@ -111,3 +111,18 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
 - **Idioms picked up**: implicit string concatenation inside parens (`( "...a" " ...b" )`) replacing backslash line continuation — same trick already used in the `BackendResponseError` f-string.
 - **Parked**: promoting the system prompt to a `chat(..., system: str | None = None)` keyword arg. Today `main()` is the only caller; lift it into `chat()` when a second caller wants one without managing the messages list itself.
 - **Next**: pick one of — structured return type (`@dataclass ChatResult`), second backend (Anthropic SDK), or first tool-calling scaffolding.
+
+---
+
+### 2026-05-27 — `ChatResult` dataclass, notes.md cheatsheets
+
+- **Picked the dataclass thread** for learning, even though no caller pulled hard on widening the return type yet. Acknowledged the tradeoff: today `main()` only uses `.content`, so this is a learning-first widening — accept the future churn if more callers land.
+- **Introduced `@dataclass(frozen=True) ChatResult`** with three fields: `content: str`, `tokens_in: int`, `tokens_out: int`. Frozen because a result is a value (a past outcome), not a state. Lives in `ollama_backend.py` for now; deferred extracting to a shared `types.py` until the second backend actually shows divergent shapes.
+- **`chat()` now returns `ChatResult`.** JSON pulled into a local `data` so the construction reads cleanly: `ChatResult(content=data["message"]["content"], tokens_in=data["prompt_eval_count"], tokens_out=data["eval_count"])`. `main()` migrated to `.content` at two sites (history append, print) and gained a per-turn `tokens_in / tokens_out` debug line.
+- **Empirical confirmation against live Ollama** (two-turn smoke test via `python -c`): turn 1 `tokens_in=45 / tokens_out=17`, turn 2 `tokens_in=78 / tokens_out=4`. Input grew with accumulated history; output tracked reply length ("Arrr!" → 4 tokens). Numbers are real, not zeros.
+- **Contract assumption widened.** The construction assumes `prompt_eval_count` and `eval_count` are always present in Ollama's response — same contract-layer concern explored and parked previously. Left as a loud-on-failure `KeyError` for now (better than silent zeros in development).
+- **`notes.md` got two cheatsheets** at "more than notes, less than full docs" depth (deliberate choice — coverage over exhaustivity):
+  - **Dataclasses + typing primer**: minimal form, the four decorator knobs (`frozen` / `slots` / `kw_only` / `order`) with when-to-use, the `field(default_factory=...)` mutable-default rule, helpers (`asdict` / `astuple` / `replace` / `fields`), an annotation primer (`int | None`, `list[int]`, forward refs), and an anti-section (NamedTuple, pydantic/attrs).
+  - **JSON stdlib**: the four entry points with the `s = string` mnemonic, type-mapping table (incl. dict-keys-become-strings round-trip pitfall), `dumps` formatting kwargs (`indent` / `sort_keys` / `separators` / `ensure_ascii` / `default` / `cls`), common patterns (pretty-print, JSON Lines), shell pipelines (`python -c`, `python -m json.tool`), gotchas, and when to reach for `orjson` / `ijson` / `pydantic`.
+- **Idioms picked up**: `dataclasses.asdict()` as the standard bridge from frozen dataclass → JSON-serialisable dict (worth knowing for future logging); `python -m json.tool` as the no-`jq` stdlib JSON prettifier.
+- **Next**: second backend (Anthropic SDK) — this is the call site that will actually pull on the parameterised `chat()` and on a shared `ChatResult` shape. Likely surfaces (a) the backend-abstraction decision (ABC vs Protocol vs sibling files) and (b) the `BackendContractError` reintroduction with a real message once shapes diverge.

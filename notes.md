@@ -219,3 +219,204 @@ Suggestions are off by default (see `.vscode/settings.json`). Summon them manual
 | ▣ (orange) | class |
 | ⬡ (green) | module |
 | 🔑 (yellow) | keyword |
+
+---
+
+## Dataclasses — typed bags of fields
+
+`@dataclass` reads your annotations and generates `__init__`, `__repr__`, and `__eq__`. Use when a class is mostly "named, typed fields" with little behaviour.
+
+### Minimal form
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class ChatResult:
+    content: str
+    tokens_in: int
+    tokens_out: int
+
+r = ChatResult(content="hi", tokens_in=12, tokens_out=4)
+r.content        # "hi"
+print(r)         # ChatResult(content='hi', tokens_in=12, tokens_out=4)
+```
+
+### Decorator knobs
+
+| Arg | Effect | When to use |
+| --- | --- | --- |
+| `frozen=True` | Instances are immutable; assignment raises `FrozenInstanceError` | Result / value objects (a past outcome, not a state) |
+| `slots=True` (3.10+) | Adds `__slots__`; blocks new attrs, slightly lower memory | When discipline matters or you have many instances |
+| `kw_only=True` (3.10+) | Forces keyword construction at every call site | Many fields, readability over brevity |
+| `order=True` | Generates `<`, `<=`, `>`, `>=` from field tuple order | Sortable value objects |
+
+### Defaults and mutable fields
+
+Scalars: `x: int = 0` — fine.
+
+Mutable defaults (`list`, `dict`, `set`) — same footgun as function args. `items: list = []` is rejected at class definition. Use `field(default_factory=...)`:
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass
+class Cart:
+    items: list[str] = field(default_factory=list)
+```
+
+### Useful helpers
+
+| Call | Effect |
+| --- | --- |
+| `dataclasses.asdict(obj)` | Recursive dict of fields — handy for JSON / logging |
+| `dataclasses.astuple(obj)` | Same but as a tuple |
+| `dataclasses.replace(obj, field=new)` | Returns a copy with one field changed (essential for `frozen=True`) |
+| `dataclasses.fields(obj)` | Iterable of `Field` metadata objects — for reflection |
+
+### Type annotations — the bit dataclasses lean on
+
+`name: type` is the syntax dataclasses scan. At runtime Python doesn't enforce these — they're hints, picked up by type checkers (pyright, mypy) and by `@dataclass` to decide which class attributes are fields.
+
+| Form | Meaning |
+| --- | --- |
+| `x: int` | x is an int |
+| `x: int \| None` | int or None (3.10+ union syntax; pre-3.10: `Optional[int]`) |
+| `x: list[int]` | list of ints (3.9+ builtin generic; pre-3.9: `List[int]`) |
+| `x: dict[str, int]` | dict mapping str → int |
+| `x: tuple[int, ...]` | tuple of any length, all ints |
+| `x: "ChatResult"` | forward reference (string) — for self-referential types |
+
+### When NOT to use a dataclass
+
+- Class has substantial behaviour, not just fields → regular class.
+- Just need a quick named tuple of values → `tuple` or `collections.namedtuple` / `typing.NamedTuple` (immutable, less ceremony, but no defaults below the first defaulted field).
+- Need runtime validation on assignment → `pydantic.BaseModel` or `attrs` with validators. Dataclasses don't validate; annotations are hints only.
+
+---
+
+## JSON in Python — `json` stdlib
+
+Four entry points, all in the `json` module. The naming is consistent: `load`/`dump` work on **f**ile-like objects; the `s`-suffixed `loads`/`dumps` work on **s**trings.
+
+### The four functions
+
+| Call | In | Out |
+| --- | --- | --- |
+| `json.loads(s)` | str (or bytes, 3.6+) | Python object |
+| `json.dumps(obj)` | Python object | str |
+| `json.load(fp)` | file-like (has `.read()`) | Python object |
+| `json.dump(obj, fp)` | Python object + file-like | None (writes to `fp`) |
+
+Mnemonic: **s = string**. No `s` = stream.
+
+### Type mapping (JSON ↔ Python)
+
+| JSON | Python |
+| --- | --- |
+| `object` | `dict` (keys always become `str` on parse) |
+| `array` | `list` |
+| `string` | `str` |
+| `number` (integer) | `int` |
+| `number` (float) | `float` |
+| `true` / `false` | `True` / `False` |
+| `null` | `None` |
+
+Round-trip note: `tuple` → `list` (not back to tuple). `set` and `bytes` raise `TypeError` unless you provide a `default=` callback.
+
+### Reading
+
+```python
+import json
+
+# from a string (or response.text)
+obj = json.loads('{"a": 1, "b": [2, 3]}')
+
+# from a file
+with open("data.json") as f:
+    obj = json.load(f)
+
+# from an httpx response (does loads on response.text under the hood)
+obj = response.json()
+```
+
+Parse failures raise `json.JSONDecodeError` (subclass of `ValueError`). The exception carries `.msg`, `.doc`, `.pos`, `.lineno`, `.colno` — useful when reporting bad input.
+
+### Writing
+
+```python
+# compact (default) — no whitespace
+json.dumps({"a": 1, "b": [2, 3]})
+# '{"a": 1, "b": [2, 3]}'
+
+# pretty-print — almost always what you want for humans
+json.dumps(obj, indent=2)
+
+# to a file
+with open("out.json", "w") as f:
+    json.dump(obj, f, indent=2)
+```
+
+### `dumps` formatting kwargs
+
+| Kwarg | Effect |
+| --- | --- |
+| `indent=2` | Pretty-print with that many spaces per level. Adds newlines too. |
+| `sort_keys=True` | Stable key order — essential for diffable JSON / golden files |
+| `separators=(",", ":")` | Override item/key separators. `(",", ":")` = most compact form (no spaces) |
+| `ensure_ascii=False` | Keep non-ASCII chars literal instead of `\uXXXX` escapes |
+| `default=fn` | Callback for objects the encoder doesn't know (e.g. `datetime`, custom classes) |
+| `cls=MyEncoder` | Plug in a full `JSONEncoder` subclass for repeated custom logic |
+
+### Common patterns
+
+```python
+# Pretty-print to stdout
+print(json.dumps(obj, indent=2))
+
+# Stable, diff-friendly serialisation
+json.dumps(obj, indent=2, sort_keys=True)
+
+# JSON Lines (one object per line — common log format)
+with open("log.jsonl", "w") as f:
+    for record in records:
+        f.write(json.dumps(record) + "\n")
+
+# Read JSON Lines back
+with open("log.jsonl") as f:
+    records = [json.loads(line) for line in f]
+```
+
+### Shell pipelines
+
+`-c` form for ad-hoc inspection (from the earlier REPL cheatsheet):
+
+```bash
+# Extract one field from a curl response
+curl -s http://localhost:11434/api/chat -d @body.json \
+  | python -c "import sys, json; print(json.load(sys.stdin)['message']['content'])"
+
+# Pretty-print any JSON on stdin
+python -m json.tool < data.json
+
+# Compact a JSON file in place (overwrite via temp)
+python -c "import json,sys; print(json.dumps(json.load(sys.stdin)))" < big.json > small.json
+```
+
+`python -m json.tool` is the built-in CLI prettifier — handy when you don't have `jq` installed.
+
+### Gotchas
+
+- **Dict keys become strings.** `json.dumps({1: "a"})` produces `'{"1": "a"}'`. Parsing it back yields `{"1": "a"}` — the `1` is gone.
+- **Floats and NaN.** `float("nan")` / `inf` are *not* valid JSON but `json.dumps` emits them by default. Pass `allow_nan=False` to raise instead — strict consumers will reject the default output.
+- **No comments, no trailing commas.** JSON syntax is strict. If a file has comments it's "JSON5" or "JSONC", and `json.loads` will reject it.
+- **`response.json()` vs `response.text`.** The former parses; the latter is the raw string. Calling `.json()` on a non-JSON body raises `JSONDecodeError`.
+- **Custom types.** For `datetime`, `Decimal`, dataclasses, etc., either pre-convert (`dataclasses.asdict(obj)`) or pass `default=` to handle them on the fly.
+
+### When NOT to use `json`
+
+- Tabular data (rows × cols) → `csv` or `pandas`.
+- Need schema validation, defaults, coercion → `pydantic` or `jsonschema`.
+- Hot path with massive payloads → `orjson` / `ujson` (drop-in faster encoders/decoders).
+- Streaming very large JSON files → `ijson` (iterative parser, doesn't load whole doc).
+
