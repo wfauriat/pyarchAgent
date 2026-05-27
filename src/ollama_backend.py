@@ -1,5 +1,10 @@
 import httpx
-from dataclasses import dataclass 
+from src.backend import (
+        ChatResult,
+        BackendError,
+        BackendConnectionError,
+        BackendResponseError
+    )
 
 
 MODEL = "qwen3:8b"
@@ -10,17 +15,6 @@ PROMPT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
     " provides information. Answer like a pirate."
 )
-
-
-@dataclass(frozen=True)
-class ChatResult:
-    content: str
-    tokens_in: int
-    tokens_out: int
-
-class BackendError(Exception): pass
-class BackendConnectionError(BackendError): pass
-class BackendResponseError(BackendError): pass
 
 
 def chat(
