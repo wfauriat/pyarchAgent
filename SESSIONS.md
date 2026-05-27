@@ -50,3 +50,53 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
 - **`.vscode/launch.json`** written with a single generic "Python: Current File" config: `type: debugpy`, `request: launch`, `program: "${file}"`, `console: integratedTerminal`. Skipped the agent.py-specific config — premature for now. Verified F5 hits a gutter breakpoint and pauses in `agent.py`.
 - **IntelliSense cheatsheet** appended to `notes.md` (keybindings table + icon legend + Linux-capture warning).
 - **Next**: back to agent code. Pending from previous session: revisit `chat()` error handling (let it raise via `response.raise_for_status()`), then multi-turn loop.
+
+---
+
+### 2026-05-27 — `chat()` error model: transport + protocol layers
+
+- **Working mode**: deliberated up-front on whether to do "Claude writes broken code, user PR-reviews it" vs tutor-first. Settled on tutor-first now, PR-review exercise reserved for a later function (conversation history or tool dispatcher) so design-and-write reps come first.
+- **Three-layer failure taxonomy** adopted as the mental model for the HTTP call: **transport** (couldn't reach server — `httpx.RequestError` family), **protocol** (non-2xx status code — `httpx.HTTPStatusError`), **contract** (response received but JSON shape wrong — `KeyError` / `JSONDecodeError`). Each layer has its own moment in the call sequence and its own remediation.
+- **Design call**: transport = *runtime* concern, surface as catchable exception so caller can retry/alert. Protocol + contract = usually *programmer errors*, fail loud with good context. Don't catch what you can't sensibly handle.
+- **Return-type honesty**: identified the old pattern (`except BaseException: return str(e)`) as a lying return type — caller can't distinguish a real reply from an error string. Replaced with raise-based error model. `-> str` now actually means "the assistant's reply, or this function raises."
+- **Custom exceptions, not pass-through**: introduced `BackendConnectionError` and `BackendResponseError` as module-level classes. Chosen over (a) bare `raise` of httpx exceptions and (b) builtin `ConnectionError` — reason: project explicitly plans a second backend (Anthropic), and both adapters should raise the same application-level types so caller code stays backend-agnostic from day one. Common `BackendError` base class noted but deferred.
+- **Concrete idioms picked up**: `response.raise_for_status()` to convert non-2xx to exception; `raise X(...) from e` to wrap while preserving the original via `__cause__`; implicit string concatenation inside parens for multi-line f-string messages (no `+`, no `\`).
+- **httpx hierarchy insight**: `RequestError` and `HTTPStatusError` are *siblings* under `HTTPError`, not parent/child — so a single try block with two except clauses suffices, no nested try needed. Current code still has the nested form; flatten on next pass.
+- **Empirical confirmations**: happy path returns model reply; bogus-port test produces `BackendConnectionError` with chained `httpx.ConnectError` underneath. Protocol path not yet exercised against a live Ollama (needs real port + nonexistent model name).
+- **Side**: added `editor.rulers: [80]` to `.vscode/settings.json` for a soft 80-col guide. Brief detour on Python multi-line string idioms.
+- **Next**: (1) flatten the nested try block; (2) fix the misleading `BackendResponseError` message to include `e.response.status_code` and `e.response.text`; (3) provoke and confirm the protocol path empirically; (4) decide whether to add a `BackendError` common base; (5) then move on to multi-turn conversation history.
+
+---
+
+### 2026-05-27 — Flattened try, refactor pass, contract layer explored & deferred
+
+- **Flattened the nested try in `chat()`.** Two `except` clauses (HTTPStatusError, RequestError) now sit as peers on a single try — matches the transport/protocol mental model and matches httpx's sibling exception hierarchy. Indentation gotcha fixed on the way.
+- **Small refactor pass (5 changes, all accepted):**
+  - Dropped `from typing import List` → `list[dict]` (Python 3.9+ builtin generic).
+  - Docstring grew a `Raises:` section so the return-type honesty extends to the doc.
+  - `payload` dict reformatted with newline + trailing comma (key-stable diffs).
+  - `REQUEST_TIMEOUT = 60` lifted to module-level constant alongside `MODEL` / `OLLAMA_URL`.
+  - Indentation tidied.
+- **Provoked the protocol path empirically.** Pointed `MODEL` at a nonexistent name; Ollama returned 404, `raise_for_status()` fired, `BackendResponseError` surfaced with status + body. Chained traceback via `from e` visible — confirms the design from previous session.
+- **Explored a contract layer.** Added `BackendError` base + `BackendContractError` subclass + `except (KeyError, TypeError, json.JSONDecodeError)` tuple-catch, motivated by anticipated multi-backend symmetry. Provoked it with `{"foo": "bar"}["message"]`. First version had two bugs the test surfaced: `e.response` doesn't exist on these exception types (would itself raise `AttributeError` and mask the wrap), and missing `from e`. Both fixed; the chained traceback then read cleanly.
+- **Decided to remove the contract layer for now.** Today it adds no information over the bare `KeyError` traceback (the wrapper just re-raises `str(e)`). When the Anthropic backend lands and contract shapes actually diverge, bring it back with a real message (e.g. include the actual keys received). `BackendError` base + the two real subclasses (connection/response) stayed — they have meaningfully different retry semantics.
+- **End-state `agent.py`:** 37 lines. Three exception classes (base + two), two except clauses, two `from e` chains, happy path is a 4-line straight read. Verified working against live Ollama (qwen3:8b on GPU).
+- **Idioms picked up along the way:** Python 3.11+ traceback underline (`~~~^^^` pointing at the failing subexpression), the distinction between *"direct cause of"* (from `raise X from Y`) vs *"during handling of"* (implicit, often a bug in the except block).
+- **Next:** multi-turn conversation history — append assistant reply to `messages`, loop.
+
+---
+
+### 2026-05-27 — `chat()` design audit, parameterization pass, rename to `ollama_backend.py`
+
+- **Design audit of `chat()` as a module-level API** (vs script-level function). Identified five things that would matter once the function gets a second caller or a second backend: (1) module-level constants read implicitly, (2) `httpx.post` creates+discards a client per call (no DI seam, no connection reuse), (3) `"think": False` hardcoded in the payload (Ollama- and qwen3-specific), (4) return type is bare `str` — soon insufficient for token counts / stop reasons / tool calls, (5) no abstraction over backend choice.
+- **Applied (1)–(3) one step at a time** so each change was reviewable in isolation:
+  - **Parameterize config** as keyword-only args with module-constant defaults: `model`, `url`, `timeout`. Use of the `*,` separator forces keyword calls at the override site — readable when there are 3+ optional args.
+  - **Inject `httpx.Client`** via `client: httpx.Client | None = None`. Default `None` falls back to `httpx.post()` (today's behavior); passing a client enables connection reuse, shared headers (auth), and test-time injection of fakes. Avoided `client = httpx.Client()` as default — that's the mutable-default-at-import footgun.
+  - **Expose `think`** as a keyword arg. Was hardcoded; now per-call.
+  - Default-only call site (`chat(messages)`) is unchanged — `__main__` block needed no edits. Good shape for API evolution.
+- **Parked (4) — structured return type.** Promoting to `@dataclass ChatResult { content, tokens_in, tokens_out, stop_reason, ... }` is the right move *when* a caller actually needs more than the assistant string. Doing it now is speculative. Note: widening this return type later is a breaking change for any caller using `chat(...)` directly — accept that future churn, or front-load when the first real need lands.
+- **Parked (5) — backend abstraction (ABC / Protocol / class refactor).** Sibling per-backend files (`ollama_backend.py`, future `anthropic_backend.py`) sharing the `BackendError` hierarchy is the working pattern for now. An abstract `Backend` ABC or `Protocol` becomes worthwhile the moment there are two adapters *and* a caller that wants to swap between them generically. Until then, "caller picks the import" is cleaner than an inheritance tree built for one occupant.
+- **Renamed `agent.py` → `ollama_backend.py`** via `git mv` (history preserved). Triggered by realizing the error messages legitimately say "Ollama" — the issue wasn't the messages, it was the file name pretending to be generic. Now message specificity is honest: it *is* the Ollama backend reporting that Ollama is unreachable.
+- **Error-message-specificity principle (worth keeping):** exception *types* are the backend-agnostic abstraction; exception *messages* should be backend-specific diagnostics. Removing the backend name from messages would erase useful information from tracebacks once multiple backends coexist.
+- **Doc trail:** `notes.md` still contains three `import agent` cheatsheet examples — idiom-level, not strictly wrong, but candidates for refresh to `import ollama_backend` next time they're touched.
+- **Next:** multi-turn conversation history (new session). Caller-side: append assistant reply to `messages`, loop. Likely the first place a long-lived `httpx.Client` gets passed in for real.
