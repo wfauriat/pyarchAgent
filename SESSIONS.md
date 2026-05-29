@@ -176,3 +176,16 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
 - **Fakes parameterized** — one `FakeClient(post_error=…, response=…)` / `FakeResponse(status_error=…)` serves all three cases (no per-scenario classes). Noted asymmetry: `post_error` takes a built exception; `status_error` takes a code the fake assembles into an `HTTPStatusError`.
 - **`notes.md`: pytest cheatsheet extended** with a "Testing exceptions — `pytest.raises`" section.
 - **Next**: the parked abstraction decision — `Protocol` vs ABC vs nothing for the backend `chat` seam. The Pylance warning (duck-typed `FakeClient` vs `client: httpx.Client | None`) is the concrete motivation — type the seam structurally.
+
+---
+
+### 2026-05-29 — `OllamaBackend` class, REPL extracted to `__main__.py`
+
+- **`chat()` free function → `OllamaBackend` class.** Construction config + the `httpx` client live in `__init__`; the per-call `call_model(messages, *, system=None) -> ChatResult` reads everything off `self`. Split rule applied: stable / backend-specific / collaborators → constructor; per-call + must-be-uniform-across-backends → method.
+- **DI seam moved to the constructor** (`client or httpx.Client()`) — tests now inject via `OllamaBackend(client=FakeClient())` rather than a method kwarg. The seam relocates with the collaborator.
+- **REPL extracted to `agentAPI/__main__.py`** as `repl(backend)` — the consumer no longer lives inside a backend module (it was briefly a `chat()` *method* on the class; pulled out). `python -m agentAPI` runs it; `__init__.py` now publishes `OllamaBackend`.
+- **Iterative review caught three bugs the green tests couldn't see**, all because the fake ignored the payload: (1) muddled split — method re-accepting `url`/`timeout`/`client` while `self.*` went dead (`timeout=None` silently disabled the timeout); (2) a dead `system` param (resolved, but the payload still sent `self.system_prompt`); (3) a malformed system message (`{"system": …}` vs `{"role": "system", "content": …}`).
+- **Added an interaction (capture) test.** `FakeClient.post` now records `self.sent_payload`; a new test asserts the request's first message is a well-formed system message using the per-call override. Closes the request-side blind spot — output-only tests can't catch a malformed payload. 4 green.
+- **Module hygiene:** the class briefly lived in `OllamaBackend.py` (CapWords) beside the old `ollama_backend.py`; collapsed into the single snake_case module, duplicate deleted. Docstring de-rotted (`token_ins`→`tokens_in`, "keys"→dataclass).
+- **`notes.md`:** added two cheatsheets — "Python classes — function→object" (constructor-vs-method split, DI-via-constructor, conventions, consumer-vs-implementation) and "Abstraction — `Protocol` vs ABC" (nominal vs structural, enforcement timing, when to reach for each). Pylance's `FakeClient` warning relocated to the **constructor** — the Protocol pull now sits on two seams (the `client` param *and* the backend interface).
+- **Next**: the `Protocol`-vs-ABC decision for the backend interface, then `AnthropicBackend` as the second implementation pressure-testing it.

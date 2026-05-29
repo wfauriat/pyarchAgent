@@ -1,6 +1,6 @@
-import anthropic
-
 from dotenv import load_dotenv
+
+import anthropic
 
 from .backend import (
         ChatResult,
