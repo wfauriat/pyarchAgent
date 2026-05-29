@@ -164,3 +164,15 @@ Lightweight running notes. Append-only — past entries are history, don't tidy 
 - **Concrete pull toward `Protocol` (the parked abstraction decision).** Pylance flags the duck-typed `FakeClient` against `chat`'s `client: httpx.Client | None` — nominal typing rejects a structural match. The proper fix is to type the seam as a `typing.Protocol` (structural), not the concrete class. First real evidence the parked ABC-vs-Protocol-vs-nothing call wants Protocol. Warning left visible as a marker (editor-only; runtime + pytest unaffected).
 - **`notes.md`: pytest basics cheatsheet added** — to be amended with `pytest.raises` / mocking / fixtures.
 - **Next**: two error-path tests — `post` raising `httpx.RequestError` → `BackendConnectionError` (easy), and `raise_for_status` raising `httpx.HTTPStatusError` → `BackendResponseError` (needs a response attached for `chat` to read `.status_code`/`.text`). Introduces `pytest.raises` and "raise the *real* exception type."
+
+---
+
+### 2026-05-29 — Ollama error-path tests, `pytest.raises`
+
+- **Two error-translation tests added** for `chat`: `post` raising `httpx.RequestError` → `BackendConnectionError`, and `raise_for_status` raising `httpx.HTTPStatusError` (real `Request`/`Response` attached) → `BackendResponseError`. The full `chat` surface is now covered — happy path + both error paths.
+- **`pytest.raises` introduced** — context manager asserting the block raises; `as excinfo` to assert on `excinfo.value` (message, and `.__cause__` from `raise … from e`).
+- **Error-translation testing pattern banked:** the *fake* raises the real low-level library error; the *unit under test* catches and re-raises its own; the *test* asserts the unit's error — and asserting the message proves the unit extracted fields (status code/text) off the original, not just that *something* raised.
+- **Subclass-matching insight:** `pytest.raises` / `except` / `isinstance` all match by inheritance, not exact type. `httpx.ConnectError` IS-A `httpx.RequestError`, so testing with the concrete `ConnectError` and asserting the base is both valid and more realistic. Nominal-typing counterpart to the duck-typed method-call lesson.
+- **Fakes parameterized** — one `FakeClient(post_error=…, response=…)` / `FakeResponse(status_error=…)` serves all three cases (no per-scenario classes). Noted asymmetry: `post_error` takes a built exception; `status_error` takes a code the fake assembles into an `HTTPStatusError`.
+- **`notes.md`: pytest cheatsheet extended** with a "Testing exceptions — `pytest.raises`" section.
+- **Next**: the parked abstraction decision — `Protocol` vs ABC vs nothing for the backend `chat` seam. The Pylance warning (duck-typed `FakeClient` vs `client: httpx.Client | None`) is the concrete motivation — type the seam structurally.

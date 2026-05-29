@@ -626,7 +626,35 @@ def test_chat_parses_successful_response():
 
 - A **fake/stub** only needs the methods the code-under-test actually *calls* — it does **not** subclass the real type. `chat` calls `client.post(...)` then `.raise_for_status()`/`.json()`, so the fake implements exactly those. (Subclassing the real `httpx.Client` would construct a real connection pool — the dependency you're trying to avoid.)
 - Inject the fake through a **seam** — here the `client=` parameter. That seam is *why* the code is testable without a network.
-- Caveat for error paths: `except`/`isinstance` are **type**-based, not duck-typed. To exercise an `except SomeError`, the fake must raise the *real* exception type the code catches (own section, later).
+- Caveat for error paths: `except`/`isinstance` are **type**-based, not duck-typed. To exercise an `except SomeError`, the fake must raise the *real* exception type the code catches (see **Testing exceptions** below).
+
+### Testing exceptions — `pytest.raises`
+
+`pytest.raises(SomeError)` is a context manager that **inverts** the assertion: the block must raise `SomeError` (or a subclass). No raise — or a *different* type — fails the test.
+
+```python
+with pytest.raises(BackendConnectionError):
+    chat(messages=..., client=failing_client)
+```
+
+Capture with `as excinfo` to assert on the exception itself — `excinfo.value` is the instance:
+
+```python
+with pytest.raises(BackendConnectionError) as excinfo:
+    ...
+assert "Could not reach" in str(excinfo.value)                   # the message
+assert isinstance(excinfo.value.__cause__, httpx.RequestError)   # the `raise … from e` chain
+```
+
+| Access | What it is |
+| --- | --- |
+| `excinfo.value` | the raised exception instance |
+| `excinfo.type` | its class |
+| `excinfo.value.__cause__` | the original exception from `raise … from e` |
+| `pytest.raises(Err, match=r"…")` | inline shorthand: assert the message matches a regex (`re.search`) |
+
+- **Matching is by subclass, not exact type** — same nominal rule as `except`/`isinstance`. `pytest.raises(httpx.RequestError)` catches an `httpx.ConnectError` (a subclass). So test with a *concrete* error and assert against the base the code actually catches.
+- **Error-translation pattern** (a unit wrapping a library's errors in its own): (1) the *fake* raises the real low-level error the code catches; (2) the *unit* catches it and re-raises its own; (3) the *test* asserts the unit's error — and asserting the **message** proves the unit read fields off the original (e.g. the status code), not merely that *something* raised.
 
 ### Running
 
@@ -646,5 +674,5 @@ def test_chat_parses_successful_response():
 
 - Name tests for **behavior**: `test_<unit>_<expected>`, not `test_fake_client`.
 - One behavior per test; keep Arrange / Act / Assert visible.
-- *To amend later:* `pytest.raises` for error paths, `unittest.mock` / `monkeypatch`, fixtures, `@pytest.mark.parametrize`.
+- *To amend later:* `unittest.mock` / `monkeypatch`, fixtures, `@pytest.mark.parametrize`.
 
