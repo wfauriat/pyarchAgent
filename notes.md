@@ -420,3 +420,101 @@ python -c "import json,sys; print(json.dumps(json.load(sys.stdin)))" < big.json 
 - Hot path with massive payloads → `orjson` / `ujson` (drop-in faster encoders/decoders).
 - Streaming very large JSON files → `ijson` (iterative parser, doesn't load whole doc).
 
+---
+
+## Makefiles — build tool used as a task runner
+
+`make` runs *recipes* to build *targets*, and rebuilds a target only when its *prerequisites* are newer (file timestamps). That incremental-build machinery is the real point. For us it's mostly a **task runner** — phony targets like `make chat_ollama` — which uses a fraction of make but is the most common day-to-day use.
+
+### Anatomy of a rule
+
+```makefile
+target: prerequisites     # what to build, and what it depends on
+<TAB>recipe               # shell commands — line MUST start with a literal tab
+```
+
+- make builds `prerequisites` first, then runs the recipe **only if** a prerequisite is newer than `target`.
+- `target` and prerequisites are treated as **filenames** by default. Task-style targets (no real file) opt out via `.PHONY`.
+
+### The three gotchas that bite everyone
+
+- **Tabs, not spaces.** Recipe lines must begin with a literal TAB. Spaces give `*** missing separator. Stop.` (Check with `cat -A` — tabs show as `^I`.)
+- **make echoes every recipe line before running it** → "doubled" output. Prefix the line with `@` to silence the echo (the fix for noisy `echo`/help targets).
+- **Each recipe line runs in its own subshell.** A `cd foo` on one line does *not* carry to the next. Chain with `&&` + `\`, or set `.ONESHELL:`.
+
+### Variables
+
+| Form | Name | Behavior |
+| --- | --- | --- |
+| `=` | recursive | RHS re-expanded **every** time the var is used (lazy) |
+| `:=` | simple | RHS expanded **once**, at definition |
+| `?=` | conditional | assign only if not already set |
+| `+=` | append | add to existing value |
+
+Reference with `$(VAR)` or `${VAR}`. To pass a literal `$` to the shell, **double it**: `$$HOME`, `$$(date)` — a single `$` is make's, not the shell's.
+
+### Automatic variables (inside a recipe)
+
+| Var | Means |
+| --- | --- |
+| `$@` | the target name |
+| `$<` | the first prerequisite |
+| `$^` | all prerequisites (deduped) |
+| `$?` | prerequisites newer than the target |
+| `$*` | the stem matched by `%` in a pattern rule |
+
+### Special targets
+
+| Target | Effect |
+| --- | --- |
+| `.PHONY: a b` | `a`, `b` aren't files — always run them (list is **space**-separated) |
+| `.DEFAULT_GOAL := help` | what bare `make` runs (otherwise: the **first** target in the file) |
+| `.SILENT:` | suppress command echo globally (vs per-line `@`) |
+| `.ONESHELL:` | run all of a recipe's lines in one shell (so `cd` persists) |
+
+### Recipe line prefixes
+
+| Prefix | Effect |
+| --- | --- |
+| `@` | don't echo this command |
+| `-` | ignore its exit status (don't abort the build on failure) |
+| `+` | run even under `make -n` |
+
+### Invoking make
+
+```bash
+make                 # run the default goal (first target, or .DEFAULT_GOAL)
+make target          # run a specific target
+make -n target       # dry run: print recipes, don't execute (great for sanity checks)
+make -s target       # silent: suppress echo for this run
+make VAR=val target  # override a variable from the command line
+make -C dir target   # chdir into dir first
+make -j4             # run independent targets in parallel
+```
+
+### Self-documenting help (the idiom)
+
+```makefile
+.DEFAULT_GOAL := help
+
+help:  ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN{FS=":.*## "}{printf "  %-18s %s\n", $$1, $$2}'
+```
+
+Tag each target with a `## description` comment, and bare `make` prints a clean menu. `$(MAKEFILE_LIST)` is the set of Makefiles read; `$$` escapes `$` so it reaches `awk`.
+
+### Gotchas
+
+- **Tabs** (yes, again — it's the single most common make error).
+- **`$` is make's, `$$` is the shell's.** Forgetting the double-`$` in shell substitutions silently expands to an empty make variable.
+- **`=` vs `:=`.** A recursive (`=`) var that references a later-defined var resolves lazily and "works"; the same with `:=` captures the (empty) value at definition. Surprises run both directions.
+- **Forgotten `.PHONY`.** If a file named `test` exists and `test` isn't phony, `make test` prints "up to date" and does nothing.
+- **Abort on first failure.** make stops at the first command that exits non-zero, unless the line is `-`-prefixed (or you pass `-i`).
+
+### When NOT to reach for make
+
+- make's real value is **timestamp-based incremental rebuilds** (compile/transform only what changed). If *every* target is phony (pure task runner), you're paying the tab / `$$` / one-shell-per-line tax for little of make's benefit.
+- Pure task-running alternatives: `just` (justfile — no tab rule, saner variables), `tox`/`nox` (Python env + test matrix), `invoke` (tasks written in Python), npm scripts.
+- **Cross-platform:** make assumes a Unix-ish shell; Windows needs care (or WSL/Git Bash).
+
