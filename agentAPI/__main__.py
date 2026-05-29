@@ -1,6 +1,6 @@
-from agentAPI import OllamaBackend
+import argparse
 
-ollama_instance = OllamaBackend()
+from agentAPI import OllamaBackend, AnthropicBackend
 
 def repl(backend):
     messages: list[dict] = []
@@ -28,4 +28,15 @@ def repl(backend):
             break
 
 if __name__ == "__main__":
-    repl(ollama_instance)
+    parser = argparse.ArgumentParser(description="Chat CLI")
+    parser.add_argument("-b", "--backend", type=str, 
+                        choices=["ollama", "anthropic"],
+                        default="ollama",
+                        help="choice of backend")
+    args = parser.parse_args()
+    if args.backend == "ollama":
+        ollama_instance = OllamaBackend()
+        repl(ollama_instance)
+    elif args.backend == "anthropic":
+        anthropic_instance = AnthropicBackend()
+        repl(anthropic_instance)

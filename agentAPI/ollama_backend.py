@@ -10,7 +10,7 @@ DEFAULT_SYSTEM = (
 class OllamaBackend():
     def __init__(self, *,
                  system_prompt: str | None = None,
-                 client: httpx.Client | None = None) -> None:
+                 client: httpx.Client | None = None):
         self._url = "http://localhost:11434/api/chat"
         self._model = "qwen3:8b"
         self._think = False

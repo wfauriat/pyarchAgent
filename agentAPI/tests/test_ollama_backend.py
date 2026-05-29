@@ -36,7 +36,7 @@ class FakeClient():
 
     
 
-def test_chat_parses_successful_response():
+def test_call_model_parses_successful_response():
     ollama_instance = OllamaBackend(client=FakeClient())
     reply = ollama_instance.call_model(messages=MOCK_MESSAGE)
     assert reply.content == "hi", f"Expected 'hi', got {reply.content!r}"
@@ -64,7 +64,5 @@ def test_call_model_sends_resolved_system_message_in_payload():
     backend = OllamaBackend(client=client, system_prompt="default sys")
     backend.call_model(messages=MOCK_MESSAGE, system="be terse")
     sent = client.sent_payload
-    # per-call `system` overrides the instance default, and is well-formed
     assert sent["messages"][0] == {"role": "system", "content": "be terse"}
-    # the original messages follow the injected system message
     assert sent["messages"][1:] == MOCK_MESSAGE

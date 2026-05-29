@@ -13,11 +13,11 @@ help:
 agentAPI:
 	$(PYTHON) -m agentAPI
 
-ollama_backend:
-	$(PYTHON) -m agentAPI.ollama_backend
+chat_ollama:
+	$(PYTHON) -m agentAPI -b "ollama"
 
-anthropic_backend:
-	$(PYTHON) -m agentAPI.anthropic_backend
+chat_anthropic:
+	$(PYTHON) -m agentAPI -b "anthropic"
 
 test:
 	$(PYTHON) -m pytest -v
