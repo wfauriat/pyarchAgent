@@ -71,10 +71,22 @@ def test_call_model_raises_response_error_on_api_status_error():
 
 
 def test_call_model_sends_system_and_messages_in_payload():
+    # no per-call system -> falls back to the constructor default
     message = FakeMessage()
     backend = AnthropicBackend(system_prompt="be terse",
                                client=FakeClient(message))
     backend.call_model(messages=MOCK_MESSAGE)
+    sent = message.sent_kwargs
+    assert sent["system"] == "be terse"
+    assert sent["messages"] == MOCK_MESSAGE
+
+
+def test_call_model_per_call_system_overrides_default():
+    # default and override differ, so the assertion proves the override won
+    message = FakeMessage()
+    backend = AnthropicBackend(system_prompt="default sys",
+                               client=FakeClient(message))
+    backend.call_model(messages=MOCK_MESSAGE, system="be terse")
     sent = message.sent_kwargs
     assert sent["system"] == "be terse"
     assert sent["messages"] == MOCK_MESSAGE

@@ -1,8 +1,9 @@
 import argparse
 
 from agentAPI import OllamaBackend, AnthropicBackend
+from agentAPI import Backend
 
-def repl(backend):
+def repl(backend: Backend):
     messages: list[dict] = []
     while True:
         print("="*80)

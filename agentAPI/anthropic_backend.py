@@ -25,15 +25,17 @@ class AnthropicBackend():
 
     def call_model(self,
             messages: list[dict],
-            ) -> ChatResult:
-        kwargs = {
-            "model": self._model,
-            "max_tokens": self._max_tokens,
-            "messages": messages,
-            "system": self.system_prompt
-        }
+            *,
+            system: str | None = None) -> ChatResult:
+        if system is None:
+            system = self.system_prompt
         try:
-            response = self.client.messages.create(**kwargs)
+            response = self.client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                messages=messages,
+                system=system,
+            )
             return ChatResult(content=response.content[0].text,
                             tokens_in=response.usage.input_tokens,
                             tokens_out=response.usage.output_tokens)
