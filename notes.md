@@ -589,3 +589,62 @@ For code meant to be imported from elsewhere, declare it in `pyproject.toml` and
 - **Naming the package `src`.** Leaks a layout word into every import. Fine for a private learning repo; rename before it's a real library.
 - **Haunted imports after a rename** → stale `__pycache__`. Deleting the `__pycache__` dirs clears it.
 
+---
+
+## pytest — basics
+
+A near-zero-config test runner: it **discovers** tests by name, runs them, and reports. You assert with the plain `assert` statement — pytest rewrites it under the hood so a failure shows the actual operands.
+
+### Discovery & config
+
+- Files `test_*.py` (or `*_test.py`); functions `test_*`; classes `Test*` (methods `test_*`, no `__init__`).
+- pytest recurses from `testpaths`. Config lives in `pyproject.toml`:
+
+```toml
+[tool.pytest.ini_options]      # exact table name — a typo here is silently ignored
+pythonpath = ["."]             # put project root on sys.path → `import yourpkg…` resolves
+testpaths  = ["agentAPI/tests"]
+```
+
+pytest *warns and ignores* an unknown config key rather than erroring (`PytestConfigWarning: Unknown config option: …`) — so read the warnings.
+
+### Anatomy — Arrange / Act / Assert
+
+```python
+def test_chat_parses_successful_response():
+    client = FakeClient()                             # Arrange
+    reply = chat(messages=[...], client=client)       # Act
+    assert reply.content == "hi"                      # Assert
+    assert reply.tokens_in == 12, f"got {reply.tokens_in!r}"   # optional message
+```
+
+- Plain `assert` is enough — pytest's introspection prints both sides (`assert 3 == 12`). No `assertEqual`/`assertTrue` ceremony.
+- The optional `, "message"` adds context; pytest still shows the values.
+- **Assert everything the unit derives from the input.** Under-asserting gives false confidence — a green test that would miss a swapped/dropped field.
+
+### Test doubles via duck typing
+
+- A **fake/stub** only needs the methods the code-under-test actually *calls* — it does **not** subclass the real type. `chat` calls `client.post(...)` then `.raise_for_status()`/`.json()`, so the fake implements exactly those. (Subclassing the real `httpx.Client` would construct a real connection pool — the dependency you're trying to avoid.)
+- Inject the fake through a **seam** — here the `client=` parameter. That seam is *why* the code is testable without a network.
+- Caveat for error paths: `except`/`isinstance` are **type**-based, not duck-typed. To exercise an `except SomeError`, the fake must raise the *real* exception type the code catches (own section, later).
+
+### Running
+
+| Cmd | Effect |
+| --- | --- |
+| `pytest` | discover + run (honors `testpaths`) |
+| `pytest -v` / `-q` | verbose (one line/test) / quiet |
+| `pytest -k EXPR` | only tests whose name matches EXPR |
+| `pytest FILE::test_name` | run a single test |
+| `pytest -x` | stop at the first failure |
+| `pytest -s` | don't capture stdout (so `print`s show) |
+| `pytest --collect-only` | list what *would* run, run nothing |
+
+- **Exit code 5 = "no tests collected"** — non-zero, so it trips a `make test` / CI target even though nothing failed.
+
+### Habits
+
+- Name tests for **behavior**: `test_<unit>_<expected>`, not `test_fake_client`.
+- One behavior per test; keep Arrange / Act / Assert visible.
+- *To amend later:* `pytest.raises` for error paths, `unittest.mock` / `monkeypatch`, fixtures, `@pytest.mark.parametrize`.
+

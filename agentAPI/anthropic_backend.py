@@ -12,7 +12,7 @@ REQUEST_TIMEOUT = 60  # seconds
 
 PROMPT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
-    " provides information. Answer like a pirate."
+    " provides information."
 )
 
 def chat(
