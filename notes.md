@@ -518,3 +518,74 @@ Tag each target with a `## description` comment, and bare `make` prints a clean 
 - Pure task-running alternatives: `just` (justfile — no tab rule, saner variables), `tox`/`nox` (Python env + test matrix), `invoke` (tasks written in Python), npm scripts.
 - **Cross-platform:** make assumes a Unix-ish shell; Windows needs care (or WSL/Git Bash).
 
+---
+
+## Packaging & imports — modules, packages, and the public API
+
+How Python finds and *names* code, why relative imports break when you run a file directly, and how `__init__.py` lets you design a public API that's decoupled from your file layout.
+
+### Modules, packages, and `sys.path`
+
+- A **module** is a `.py` file. A **package** is a directory Python can import — either a *regular package* (has `__init__.py`) or a *namespace package* (no `__init__.py`, PEP 420).
+- Import resolution walks `sys.path`. Its first entry depends on **how you launched Python** — which is the root cause of most "works here, breaks there" import pain:
+
+| Launch | `sys.path[0]` is… | `__name__` | `__package__` | relative imports? |
+| --- | --- | --- | --- | --- |
+| `python pkg/mod.py` | `pkg/` (the script's own dir) | `"__main__"` | `""` | **break** |
+| `python -m pkg.mod` | cwd (where `pkg` is visible) | `"__main__"` | `"pkg"` | **work** |
+| `import pkg.mod` (elsewhere) | (already running) | `"pkg.mod"` | `"pkg"` | work |
+
+The middle row is the one that lets `if __name__ == "__main__":` **and** relative imports coexist — which is exactly why the backends run as `python -m src.ollama_backend` rather than `python src/ollama_backend.py`.
+
+### Absolute vs relative imports
+
+| Style | Form | Resolved against |
+| --- | --- | --- |
+| absolute | `from src.backend import ChatResult` | `sys.path` roots |
+| relative | `from .backend import ChatResult` | the current module's package (`__package__`) |
+| relative (parent) | `from ..util import x` | one package up |
+
+- Dots: `.` = this package, `..` = parent, `...` = grandparent.
+- Relative imports require the module to *be inside a package* (non-empty `__package__`). Run a file directly and you get `ImportError: attempted relative import with no known parent package`.
+- PEP 8 leans absolute for readability; relative is fine for intra-package wiring and is **rename-safe** (no hard-coded top-level name — rename the package and relative imports still resolve).
+
+### `__init__.py` — the package's front door (the API-design lever)
+
+Runs once on first import of the package. Its highest-value use: **re-export your public names** so callers import from the package, not from its internal file layout.
+
+```python
+# src/__init__.py
+from .backend import ChatResult, BackendError
+
+__all__ = ["ChatResult", "BackendError"]   # the explicit public surface
+```
+
+Now `from src import ChatResult` works, and you can move `ChatResult` between internal modules without breaking a single caller. This is the biggest "good API" move: the **public surface is decoupled from the file structure**. `__all__` also defines what `from src import *` exports and documents intent.
+
+Keep `__init__.py` light — no heavy work or I/O at import time; every importer pays for it.
+
+### `__main__.py` — make a package runnable
+
+A `package/__main__.py` is what `python -m package` executes. Good home for a CLI entry point, so `python -m src` launches the app instead of you naming a specific submodule.
+
+### Conventions that signal API boundaries
+
+| Convention | Means |
+| --- | --- |
+| `_module.py` / `_name` | internal / private — not part of the public API |
+| `__all__` in `__init__.py` | the explicit, supported public surface |
+| no leading underscore | public — callers may depend on it |
+| deep relative (`from ...a.b import x`) | smell: package too nested, or the boundary is wrong |
+
+### The graduation step: an installable package
+
+For code meant to be imported from elsewhere, declare it in `pyproject.toml` and `pip install -e .`. Then absolute imports resolve **regardless of cwd** — no `-m`-from-root dance, no `sys.path` hacks in tests. The proper "src layout" puts the importable package *under* `src/` (e.g. `src/agentbuilding/`) and installs it; bare `src` as the package name is an anti-pattern (you don't want `import src.backend` shipping the word "src" into the namespace). Out of scope while this is a single folder of scripts — it's where the project goes when it stops being one.
+
+### Gotchas
+
+- **Relative import in a directly-run file** → `attempted relative import with no known parent package`. Use `-m`, or switch that module to absolute imports.
+- **Shadowing stdlib.** A local `json.py` / `queue.py` / `types.py` hides the stdlib module of that name — baffling import errors follow. Don't name modules after stdlib.
+- **Circular imports.** A imports B which imports A → `ImportError` or a half-initialised module. Fixes: extract the shared piece into a third module, defer the import inside the function, or fix the dependency direction.
+- **Naming the package `src`.** Leaks a layout word into every import. Fine for a private learning repo; rename before it's a real library.
+- **Haunted imports after a rename** → stale `__pycache__`. Deleting the `__pycache__` dirs clears it.
+

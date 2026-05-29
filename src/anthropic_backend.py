@@ -2,7 +2,7 @@ import anthropic
 
 from dotenv import load_dotenv
 
-from backend import (
+from .backend import (
         ChatResult,
     )
 

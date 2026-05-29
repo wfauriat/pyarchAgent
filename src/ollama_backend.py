@@ -1,5 +1,5 @@
 import httpx
-from src.backend import (
+from .backend import (
         ChatResult,
         BackendError,
         BackendConnectionError,
