@@ -193,6 +193,39 @@ Python's built-in interactive debugger. Pause execution, inspect state, step thr
 - You can run *any* Python at the prompt — assignments, method calls, imports. Current frame's locals/globals are all live.
 - `Enter` on an empty line repeats the last command (handy when stepping with `n`).
 
+### Debugging code that runs as `python -m package`
+
+Once the code uses **relative imports** (`from .backend import …`), running the *file directly* breaks — `__package__` is empty, so the import dies with `attempted relative import with no known parent package`. Both the naïve VSCode config (`"program": "${file}"`) and `python -m pdb script.py` run the file *as a script*, so both hit this. You need the **module** form (the debugger counterpart to the `-m` run decision — see the Packaging entry).
+
+**CLI** — pdb has its own `-m` (Python 3.7+), mirroring `python -m pkg.mod`:
+
+```bash
+python -m pdb -m agentAPI.ollama_backend   # step from line 1, package-aware
+# or just drop breakpoint() in the source and run normally:
+python -m agentAPI.ollama_backend
+```
+
+**VSCode** (`.vscode/launch.json`) — swap `"program"` for `"module"`:
+
+```jsonc
+{
+  "name": "Python: agentAPI module",
+  "type": "debugpy",
+  "request": "launch",
+  "module": "agentAPI",            // runs python -m agentAPI (executes __main__.py)
+  "console": "integratedTerminal",
+  "cwd": "${workspaceFolder}"       // must be the dir that CONTAINS agentAPI/
+}
+```
+
+| Key | Note |
+| --- | --- |
+| `"module": "agentAPI"` | runs `python -m agentAPI` → `__main__.py`. For a submodule: `"agentAPI.ollama_backend"`. |
+| `"cwd"` | must resolve to the dir holding the `agentAPI/` package, else `No module named agentAPI`. Optional — debugpy defaults it to `${workspaceFolder}`. |
+| `${workspaceFolder}` | the **workspace root folder**, not the current file's dir. A folder's `.vscode/` is only read when that folder *is* the root — so here it already points at `agentBuilding/`. |
+
+Keep a second `"program": "${file}"` config too: it's fine for standalone scripts, just not for anything using relative imports. Pick from the F5 dropdown.
+
 ---
 
 ## IntelliSense in VSCode
