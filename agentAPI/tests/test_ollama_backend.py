@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 import httpx
 
@@ -30,8 +32,9 @@ class FakeClient():
     def __init__(self, *, post_error=None, response=None):
         self._post_error = post_error
         self._response = response or FakeResponse()
-    def post(self, url=None, *, json=None, **kwargs):
-        self.sent_payload = json          # capture what call_model built
+    def post(self, url: str, *, json: dict[str, Any],
+             timeout: float) -> FakeResponse:
+        self.sent_payload = json
         if self._post_error: raise self._post_error
         return self._response
 

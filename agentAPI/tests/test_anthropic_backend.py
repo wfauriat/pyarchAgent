@@ -17,7 +17,7 @@ class FakeMessage():
         self._create_error = create_error
 
     def create(self, **kwargs):
-        self.sent_kwargs = kwargs         # capture what call_model built
+        self.sent_kwargs = kwargs
         if self._create_error:
             raise self._create_error
         Usage = namedtuple("Usage", ["input_tokens", "output_tokens"])
