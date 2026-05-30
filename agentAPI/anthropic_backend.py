@@ -1,5 +1,7 @@
 from typing import Any, Protocol, cast
 from dotenv import load_dotenv
+import logging
+
 import anthropic
 from anthropic.types import MessageParam, TextBlock
 
@@ -7,6 +9,8 @@ from .backend import (ChatResult, Message,
                       BackendConnectionError, BackendResponseError,
                       BackendContractError)
 
+
+logger = logging.getLogger(__name__)
 
 class _Messages(Protocol):
     def create(self, **kwargs: Any) -> Any: ...
@@ -39,6 +43,7 @@ class AnthropicBackend():
         if system is None:
             system = self.system_prompt
         try:
+            logger.debug("Attempting connection with anthropic")
             response = self.client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
@@ -46,6 +51,10 @@ class AnthropicBackend():
                 system=system,
             )
             block = response.content[0]
+            logger.debug(
+                "Response received from anthropic, "
+                "Tokens in: %d, Tokens out: %d",
+                response.usage.input_tokens, response.usage.output_tokens)
             if not isinstance(block, TextBlock):
                 raise BackendContractError(
                     f"Expected a single text response, got "

@@ -1,9 +1,12 @@
 from typing import Any, Protocol
-
+import logging
 import httpx
 
 from .backend import (ChatResult, Message,
                       BackendConnectionError, BackendResponseError)
+
+logger = logging.getLogger(__name__)
+
 
 class _Response(Protocol):
     def raise_for_status(self) -> Any: ...
@@ -13,9 +16,10 @@ class _HttpClient(Protocol):
     def post(self,
     url: str, *, json: Any, timeout: float) -> _Response: ...
 
+
 DEFAULT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
-    " provides information. Answer like a pirate."
+    " provides information. Talk in old english like shakespeare."
 )
 
 class OllamaBackend():
@@ -55,10 +59,15 @@ class OllamaBackend():
         }
 
         try:
+            logger.debug("Attempting connection with ollama")
             response = self.client.post(self._url, json=payload,
                                     timeout=self._request_timeout)
             response.raise_for_status()
             data = response.json()
+            logger.debug(
+                "Response received from ollama, "
+                "Tokens in: %d, Tokens out: %d",
+                data["prompt_eval_count"], data["eval_count"])
             return ChatResult(content=data["message"]["content"],
                             tokens_in=data["prompt_eval_count"],
                             tokens_out=data["eval_count"])

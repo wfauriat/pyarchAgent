@@ -887,3 +887,130 @@ The reason this came up: the SDK wants `Iterable[MessageParam]`, and a bare `lis
 - Need runtime validation / coercion → `pydantic` or `attrs`.
 - Want an object with methods, defaults below a defaulted field, attribute access → `@dataclass` / `NamedTuple`.
 
+---
+
+## `logging` — the stdlib logging subsystem
+
+Diagnostics that *the application* controls (where they go, how loud, what format) decoupled from the *library* call that emits them. The whole design hinges on that split.
+
+### Why not `print`
+
+| `print` | `logging` |
+| --- | --- |
+| always stdout | application routes records — stderr, file, both |
+| add-then-delete debugging | level is a volume knob; diagnostics live at `DEBUG` permanently |
+| you hand-build context into the string | formatter supplies timestamp / level / module / line |
+| *emit* and *show* are the same act | **emit** (library) is decoupled from **show + where** (application) |
+
+`print` is still correct for true program **output** (the assistant reply is UX, not a log). `logging` is for diagnostics.
+
+### The five pieces
+
+| Piece | Role |
+| --- | --- |
+| **Logger** | what you call (`.debug()`/`.info()`/…); named, hierarchical |
+| **Level** | severity threshold: `DEBUG < INFO < WARNING < ERROR < CRITICAL` |
+| **Handler** | *where* records go (`StreamHandler`→stderr, `FileHandler`→file, …) |
+| **Formatter** | *how* each record renders |
+| **Filter** | (optional) finer drop logic than level alone |
+
+### Get a logger — `getLogger(__name__)`
+
+```python
+import logging
+logger = logging.getLogger(__name__)   # module-level, once per module
+```
+
+- `__name__` is the dotted module path (`agentAPI.ollama_backend`), so loggers form a **tree** nested under the package logger (`agentAPI`). One `setLevel` on the package controls every module under it.
+- Never `getLogger()` with no arg in a module (that's the **root**); never hardcode `"agentAPI"` (collapses every module onto one name, losing per-module granularity).
+
+### Levels
+
+| Level | # | Use |
+| --- | --- | --- |
+| `DEBUG` | 10 | developer diagnostics |
+| `INFO` | 20 | normal milestones |
+| `WARNING` | 30 | something off, still working (**default floor**) |
+| `ERROR` | 40 | an operation failed |
+| `CRITICAL` | 50 | the program may not continue |
+
+A record is created iff its level `>=` the logger's **effective level** (walk up to the first ancestor with an explicit level; root defaults to `WARNING`).
+
+### The library/application split — the load-bearing rule
+
+- A **library** (`agentAPI` package) only ever **gets a logger and emits**. It must **never** configure — no `basicConfig`, no handlers, no `setLevel`. Configuring logging is a process-wide global side effect; a library that does it steals a decision that belongs to whoever runs the program. *Same shape as `load_dotenv()` at the application edge.*
+- The **application** (the entry point / `__main__.py`) configures **once**.
+
+### Configure once — `basicConfig`
+
+```python
+# __main__.py — the application edge
+logging.basicConfig(
+    level="WARNING",                                      # root floor
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("agentAPI").setLevel(logging.DEBUG)     # raise only our namespace
+```
+
+`basicConfig` configures the **root** logger: adds a `StreamHandler`(→stderr) + a `Formatter`, sets root's level. It **no-ops if root already has a handler** — call it first, once (or pass `force=True`).
+
+### Propagation + the global-level trap (the httpcore flood)
+
+- Every logger **propagates** its records up to its ancestors' handlers, all the way to root. So one handler on root sees *everyone's* records — yours, `httpcore`'s, `httpx`'s, `urllib3`'s.
+- The level check happens **once**, at the originating logger's effective level. Ancestor *levels* are **not** re-checked during propagation — only ancestor *handlers* (each with its own level).
+- ⇒ `basicConfig(level=DEBUG)` turns DEBUG on for the **entire dependency tree**. Third-party libs were emitting into the void all along; you just gave them a destination *and* lowered the floor. That's the wall of `DEBUG:httpcore.connection:...`.
+
+**Fix — floor the root, raise your namespace:**
+
+```python
+logging.basicConfig(level="WARNING")                  # everyone's floor
+logging.getLogger("agentAPI").setLevel(logging.DEBUG) # only our records survive
+# selectively mute one noisy lib instead:
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+```
+
+`httpcore` inherits the root `WARNING` floor → its DEBUG dies at origin. `agentAPI.*` has an explicit DEBUG ancestor → its records pass the check and still reach root's handler.
+
+### Format + `datefmt`
+
+- `format=` uses `%(placeholder)s` fields; `datefmt=` formats the **`%(asctime)s`** field with `time.strftime` codes — and is **inert unless `%(asctime)s` is in `format`**.
+- Default `asctime` is `2026-05-30 14:23:01,123` (comma-millis). A **custom `datefmt` drops the millis** (strftime has no ms code) — add `%(msecs)03d` to `format` to get them back.
+
+| `format` placeholder | Renders |
+| --- | --- |
+| `%(asctime)s` | timestamp (shaped by `datefmt`) |
+| `%(levelname)s` | `DEBUG` / `INFO` / … |
+| `%(name)s` | logger name (`agentAPI.ollama_backend`) |
+| `%(message)s` | the logged message |
+| `%(funcName)s` / `%(lineno)d` | function / line |
+
+| `datefmt` | Renders |
+| --- | --- |
+| `%H:%M:%S` | `14:23:01` — clock only; best for a live REPL |
+| `%Y-%m-%d %H:%M:%S` | default minus millis |
+| `%Y-%m-%dT%H:%M:%S%z` | ISO-8601 + offset — log-aggregator friendly |
+
+### Emit — lazy `%`-formatting
+
+```python
+logger.debug("model=%s messages=%d", model, len(messages))   # ✓ deferred
+logger.debug(f"model={model} messages={len(messages)}")      # ✗ eager + lint warning
+```
+
+The `%`-args are formatted **only if the record is actually emitted** — when the level is off, the work is skipped. (Linters flag the f-string form: Pylint `W1203`.) Inside an `except`, `logger.exception("…")` logs at `ERROR` **with the traceback attached** (same as `exc_info=True`).
+
+### Gotchas
+
+- **Mutators return `None`.** `setLevel()`/`addHandler()` change in place and return `None` — `logger = getLogger(x).setLevel(...)` binds `logger` to `None` (then `.debug` → `AttributeError`/Pylance error). Same family as `list.sort()`.
+- **`basicConfig` configures *root*, not your logger** — and no-ops if a handler already exists. Configure in one place, first.
+- **`datefmt` with no `%(asctime)s`** in `format` → silently no effect.
+- **Duplicate lines** = a logger has its own handler **and** propagates to root's handler. Pick one; or set `logger.propagate = False`.
+- **Fusing get + configure** in a library re-introduces the anti-pattern: getting the logger is the library's job, setting its level is the application's.
+
+### When NOT to reach for `logging`
+
+- True program **output** (a CLI result, the model's reply) → `print`. Logging is diagnostics.
+- A throwaway one-off script → `print` is fine; reach for `logging` once there's a library/application boundary.
+- Structured/JSON logs at scale → `structlog` or a JSON `Formatter`.
+

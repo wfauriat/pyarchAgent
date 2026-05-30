@@ -1,4 +1,12 @@
 import argparse
+import logging
+
+logging.basicConfig(
+    level="WARNING",
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+logging.getLogger("agentAPI").setLevel(logging.DEBUG)
 
 from agentAPI import OllamaBackend, AnthropicBackend
 from agentAPI import Backend, Message
