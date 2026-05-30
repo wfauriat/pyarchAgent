@@ -1,9 +1,17 @@
+from typing import Any, Protocol
 from dotenv import load_dotenv
 import anthropic
 
 from .backend import (ChatResult,
                       BackendConnectionError, BackendResponseError)
 
+
+class _Messages(Protocol):
+    def create(self, **kwargs: Any) -> Any: ...
+
+class _AnthropicClient(Protocol):
+    @property
+    def messages(self) -> _Messages: ...
 
 DEFAULT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
@@ -14,14 +22,13 @@ class AnthropicBackend():
     def __init__(self,
             system_prompt: str | None = None,
             *,
-            client: anthropic.Anthropic | None = None) -> None:
+            client: _AnthropicClient | None = None) -> None:
         self._model = "claude-haiku-4-5-20251001"
         self._max_tokens = 1024
         self.system_prompt = system_prompt or DEFAULT_SYSTEM
         if client is None:
             load_dotenv()
-            self.client = anthropic.Anthropic()
-        else: self.client = client
+        self.client = client or anthropic.Anthropic()
 
     def call_model(self,
             messages: list[dict],

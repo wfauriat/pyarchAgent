@@ -1,6 +1,17 @@
+from typing import Any, Protocol
+
 import httpx
+
 from .backend import (ChatResult,
                       BackendConnectionError, BackendResponseError)
+
+class _Response(Protocol):
+    def raise_for_status(self) -> Any: ...
+    def json(self) -> Any: ...
+
+class _HttpClient(Protocol):
+    def post(self,
+    url: str, *, json: Any, timeout: float) -> _Response: ...
 
 DEFAULT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
@@ -10,7 +21,7 @@ DEFAULT_SYSTEM = (
 class OllamaBackend():
     def __init__(self, *,
                  system_prompt: str | None = None,
-                 client: httpx.Client | None = None):
+                 client: _HttpClient | None = None):
         self._url = "http://localhost:11434/api/chat"
         self._model = "qwen3:8b"
         self._think = False
