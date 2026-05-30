@@ -1014,3 +1014,73 @@ The `%`-args are formatted **only if the record is actually emitted** — when t
 - A throwaway one-off script → `print` is fine; reach for `logging` once there's a library/application boundary.
 - Structured/JSON logs at scale → `structlog` or a JSON `Formatter`.
 
+---
+
+## `Enum` — named constants with identity
+
+A fixed, **closed** set of named values (states, kinds, stop reasons) promoted into a real *type* — not bare strings scattered around. Members are singletons: namespaced, compared by identity, iterable, exhaustiveness-friendly.
+
+### Minimal form
+
+```python
+from enum import Enum
+
+class StopReason(Enum):
+    END = "end"
+    TOOL = "tool"
+    MAX_TOKENS = "max_tokens"
+
+StopReason.TOOL          # <StopReason.TOOL: 'tool'>
+StopReason.TOOL.name     # 'TOOL'
+StopReason.TOOL.value    # 'tool'
+```
+
+### Members are singletons → compare with `is`
+
+- Each member is one shared instance, so `StopReason.TOOL is StopReason.TOOL` is always `True`. `is` is the idiom (`==` also works, identity-based by default).
+- **A plain `Enum` member is NOT its value:** `StopReason.TOOL == "tool"` is **`False`** — the member *wraps* the string, it isn't the string. Reach for `.value`, or use `StrEnum`/`IntEnum` (below) to make them interchangeable.
+
+### Iteration & lookup
+
+| Expression | Result |
+| --- | --- |
+| `list(StopReason)` | all members, in definition order |
+| `StopReason("tool")` | lookup **by value** → `StopReason.TOOL` (`ValueError` if none) |
+| `StopReason["TOOL"]` | lookup **by name** → `StopReason.TOOL` (`KeyError` if none) |
+
+### Variants
+
+| Class | Members are… | Use when |
+| --- | --- | --- |
+| `Enum` | their own type (not the raw value) | default — a closed set, identity comparison |
+| `IntEnum` | real `int`s (`Status.OK == 200`) | the value must behave as an int |
+| `StrEnum` (3.11+) | real `str`s (`Color.RED == "red"`) | the value must behave as a str (JSON / wire) |
+| `Flag` / `IntFlag` | combinable bitmasks (`A \| B`) | sets of on/off options |
+| `auto()` | autovalue (1, 2, 3…) | you only care about the name, not the value |
+
+### `Enum` vs `Literal` — the call you'll make most
+
+| | `Literal["a", "b"]` | `Enum` |
+| --- | --- | --- |
+| Runtime object | none — it *is* the str/int | a real type; members are instances |
+| `is` / iteration / methods | no | yes (`list(E)`, methods on the class) |
+| As a wire value | drops straight into JSON | need `.value` (unless `StrEnum`) |
+| Exhaustiveness check | yes | yes |
+| Ceremony | minimal | a class + `.value` to serialize |
+
+Rule of thumb (this codebase): **`Literal`** when the value flows straight onto the wire as a string (`Message.role`); **`Enum`** when it's an internal named state you branch on (`StopReason`). `StrEnum` is the hybrid — Enum ergonomics *and* the member *is* its string.
+
+### Gotchas
+
+- **Member ≠ value** for plain `Enum` (see above) — the single most common surprise.
+- **Duplicate values alias.** Two members with the same value → the second is an *alias* of the first, not a distinct member. `@enum.unique` forbids it.
+- **Can't subclass an Enum that has members** (`class Sub(StopReason)` → `TypeError`) — Enums are closed by design.
+- **`auto()` values are an implementation detail** — don't persist them; use explicit values for anything serialized.
+- **Cross-enum comparison** is always distinct: `StopReason.END is Other.END` → `False` even if values match.
+
+### When NOT to use
+
+- The value goes straight onto the wire and you never branch on it → `Literal` (lighter, no `.value`).
+- Open/extensible set (plugins add members) → Enums are closed; use a registry/dict.
+- A single one-off constant → a module-level constant is enough.
+

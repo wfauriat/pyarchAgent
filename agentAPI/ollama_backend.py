@@ -2,7 +2,7 @@ from typing import Any, Protocol
 import logging
 import httpx
 
-from .backend import (ChatResult, Message,
+from .backend import (ToolCall, Message, ChatResult, StopReason, 
                       BackendConnectionError, BackendResponseError)
 
 logger = logging.getLogger(__name__)
@@ -19,8 +19,25 @@ class _HttpClient(Protocol):
 
 DEFAULT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
-    " provides information. Talk in old english like shakespeare."
+    " provides information. You have access to tools,"
+    "use them if you feel it is appropriate or you are asked to."
 )
+
+TOOLS = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Provide a description of the current weather in a given city",
+        "parameters": {
+            "type": "object",
+            "properties": 
+            {
+                "city": {"type": "string"}
+            },
+            "required": ["city"]
+        }
+    }
+}
 
 class OllamaBackend():
     def __init__(self, *,
@@ -56,8 +73,9 @@ class OllamaBackend():
             "think": self._think,
             "messages": [{"role": "system",
                           "content": system}, *messages],
+            "tools": [TOOLS]
         }
-
+        tools_list = ()
         try:
             logger.debug("Attempting connection with ollama")
             response = self.client.post(self._url, json=payload,
@@ -68,9 +86,27 @@ class OllamaBackend():
                 "Response received from ollama, "
                 "Tokens in: %d, Tokens out: %d",
                 data["prompt_eval_count"], data["eval_count"])
-            return ChatResult(content=data["message"]["content"],
-                            tokens_in=data["prompt_eval_count"],
-                            tokens_out=data["eval_count"])
+            if data["message"].get("tool_calls"):
+                stop_reason = StopReason.TOOL
+                tools_list = tuple([ToolCall(
+                    id=tc["id"],
+                    name=tc["function"]["name"],
+                    arguments=tc["function"]["arguments"]
+                    ) for tc in data["message"]["tool_calls"]
+                ])
+                logger.debug(tools_list)
+            elif data["done_reason"] == "length":
+                stop_reason = StopReason.MAX_TOKENS
+            else: stop_reason = StopReason.END
+
+            output = ChatResult(
+                stop_reason=stop_reason,
+                content=data["message"]["content"],
+                tokens_in=data["prompt_eval_count"],
+                tokens_out=data["eval_count"],
+                tool_calls=tools_list)
+            return output
+        
         except httpx.HTTPStatusError as e:
             raise BackendResponseError(
                 f"Ollama returned HTTP {e.response.status_code}: "
@@ -79,3 +115,5 @@ class OllamaBackend():
         except httpx.RequestError as e:
             raise BackendConnectionError(
                 f"Could not reach Ollama at {self._url}") from e
+        
+

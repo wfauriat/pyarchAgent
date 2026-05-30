@@ -4,15 +4,41 @@ import pytest
 import httpx
 
 from agentAPI.ollama_backend import OllamaBackend
-from agentAPI.backend import (Message,
+from agentAPI.backend import (Message, StopReason, ToolCall,
     BackendConnectionError, BackendResponseError)
 
 MOCK_MESSAGE: list[Message] = [{"role": "user", "content":"hello"}]
 
+# Mirrors a real Ollama /api/chat response (note: done_reason is always
+# present on a completed non-streaming response).
+HAPPY_DATA = {
+    "message": {"content": "hi"},
+    "done_reason": "stop",
+    "prompt_eval_count": 12,
+    "eval_count": 4,
+}
+
+# A tool-call response: content empty, the payload lives in tool_calls,
+# done_reason is still "stop" (so detection is by presence, not reason).
+TOOL_DATA = {
+    "message": {
+        "content": "",
+        "tool_calls": [
+            {"id": "call_abc",
+             "function": {"name": "get_weather",
+                          "arguments": {"city": "Paris"}}},
+        ],
+    },
+    "done_reason": "stop",
+    "prompt_eval_count": 182,
+    "eval_count": 20,
+}
+
 class FakeResponse():
-    def __init__(self, *, status_error=None):
+    def __init__(self, *, status_error=None, data=None):
         self._status_error = status_error
-    def raise_for_status(self): 
+        self._data = HAPPY_DATA if data is None else data
+    def raise_for_status(self):
         if self._status_error:
             request = httpx.Request("POST", "http://test")
             response = httpx.Response(self._status_error, text="server boom",
@@ -22,11 +48,7 @@ class FakeResponse():
                                              response=response)
             raise http_err
     def json(self):
-        return {
-            "message": {"content": "hi"},
-            "prompt_eval_count": 12,
-            "eval_count": 4
-            }
+        return self._data
 
 class FakeClient():
     def __init__(self, *, post_error=None, response=None):
@@ -38,7 +60,6 @@ class FakeClient():
         if self._post_error: raise self._post_error
         return self._response
 
-    
 
 def test_call_model_parses_successful_response():
     ollama_instance = OllamaBackend(client=FakeClient())
@@ -46,6 +67,27 @@ def test_call_model_parses_successful_response():
     assert reply.content == "hi", f"Expected 'hi', got {reply.content!r}"
     assert reply.tokens_in == 12, f"Expected 12, got {reply.tokens_in!r}"
     assert reply.tokens_out == 4, f"Expected 4, got {reply.tokens_out!r}"
+    assert reply.stop_reason == StopReason.END, \
+        f"Expected END, got {reply.stop_reason!r}"
+    assert reply.tool_calls == (), f"Expected (), got {reply.tool_calls!r}"
+
+def test_call_model_parses_tool_call_response():
+    client = FakeClient(response=FakeResponse(data=TOOL_DATA))
+    reply = OllamaBackend(client=client).call_model(messages=MOCK_MESSAGE)
+    assert reply.stop_reason == StopReason.TOOL, \
+        f"Expected TOOL, got {reply.stop_reason!r}"
+    assert reply.content == "", f"Expected '', got {reply.content!r}"
+    assert reply.tool_calls == (
+        ToolCall(id="call_abc", name="get_weather",
+                 arguments={"city": "Paris"}),
+    ), f"got {reply.tool_calls!r}"
+
+def test_call_model_sets_max_tokens_stop_reason_on_length():
+    data = {**HAPPY_DATA, "done_reason": "length"}
+    client = FakeClient(response=FakeResponse(data=data))
+    reply = OllamaBackend(client=client).call_model(messages=MOCK_MESSAGE)
+    assert reply.stop_reason == StopReason.MAX_TOKENS, \
+        f"Expected MAX_TOKENS, got {reply.stop_reason!r}"
 
 def test_chat_raises_connection_error_when_post_fails():
     ollama_instance = OllamaBackend(

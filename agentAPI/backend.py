@@ -1,11 +1,25 @@
 from dataclasses import dataclass 
-from typing import Protocol, TypedDict, Literal
+from typing import Any, Protocol, TypedDict, Literal
+from enum import Enum
 
 @dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+class StopReason(Enum):
+    END = "end"
+    TOOL = "tool"
+    MAX_TOKENS = "max_tokens"
+
+@dataclass(frozen=True, kw_only=True)
 class ChatResult:
+    stop_reason: StopReason
     content: str
     tokens_in: int
     tokens_out: int
+    tool_calls: tuple[ToolCall, ...] = ()
 
 class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
