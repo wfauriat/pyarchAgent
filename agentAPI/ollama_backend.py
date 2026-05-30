@@ -2,7 +2,7 @@ from typing import Any, Protocol
 
 import httpx
 
-from .backend import (ChatResult,
+from .backend import (ChatResult, Message,
                       BackendConnectionError, BackendResponseError)
 
 class _Response(Protocol):
@@ -30,7 +30,7 @@ class OllamaBackend():
         self.client = client or httpx.Client()
 
     def call_model(self,
-        messages: list[dict],
+        messages: list[Message],
         *,
         system: str | None = None,
     ) -> ChatResult:

@@ -1,8 +1,9 @@
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from dotenv import load_dotenv
 import anthropic
+from anthropic.types import MessageParam
 
-from .backend import (ChatResult,
+from .backend import (ChatResult, Message,
                       BackendConnectionError, BackendResponseError)
 
 
@@ -31,7 +32,7 @@ class AnthropicBackend():
         self.client = client or anthropic.Anthropic()
 
     def call_model(self,
-            messages: list[dict],
+            messages: list[Message],
             *,
             system: str | None = None) -> ChatResult:
         if system is None:
@@ -40,7 +41,7 @@ class AnthropicBackend():
             response = self.client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
-                messages=messages,
+                messages=cast(list[MessageParam], messages),
                 system=system,
             )
             return ChatResult(content=response.content[0].text,

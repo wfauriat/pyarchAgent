@@ -1,5 +1,5 @@
 from dataclasses import dataclass 
-from typing import Protocol
+from typing import Protocol, TypedDict, Literal
 
 @dataclass(frozen=True)
 class ChatResult:
@@ -11,9 +11,14 @@ class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
 class BackendResponseError(BackendError): pass
 
+class Message(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
 class Backend(Protocol):
     def call_model(self,
-        messages: list[dict],
+        messages: list[Message],
         *,
         system: str | None = None
         ) -> ChatResult: ...
+    

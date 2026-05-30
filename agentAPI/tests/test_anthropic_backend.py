@@ -5,9 +5,10 @@ import httpx
 import anthropic
 
 from agentAPI.anthropic_backend import AnthropicBackend
-from agentAPI.backend import BackendConnectionError, BackendResponseError
+from agentAPI.backend import (Message,
+    BackendConnectionError, BackendResponseError)
 
-MOCK_MESSAGE = [{"role": "user", "content": "hello"}]
+MOCK_MESSAGE: list[Message] = [{"role": "user", "content": "hello"}]
 
 
 class FakeMessage():

@@ -2,9 +2,10 @@ import pytest
 import httpx
 
 from agentAPI.ollama_backend import OllamaBackend
-from agentAPI.backend import BackendConnectionError, BackendResponseError
+from agentAPI.backend import (Message,
+    BackendConnectionError, BackendResponseError)
 
-MOCK_MESSAGE = [{"role": "user", "content":"hello"}]
+MOCK_MESSAGE: list[Message] = [{"role": "user", "content":"hello"}]
 
 class FakeResponse():
     def __init__(self, *, status_error=None):

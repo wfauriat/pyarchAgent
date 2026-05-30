@@ -1,10 +1,11 @@
 import argparse
 
 from agentAPI import OllamaBackend, AnthropicBackend
-from agentAPI import Backend
+from agentAPI import Backend, Message
+
 
 def repl(backend: Backend):
-    messages: list[dict] = []
+    messages: list[Message] = []
     while True:
         print("="*80)
         print("User:")
@@ -14,7 +15,7 @@ def repl(backend: Backend):
             if prompt.strip().lower() == "quit" or prompt == "/quit":
                 print("\nbye")
                 break
-            user_msg = {"role":"user", "content":prompt}
+            user_msg: Message = {"role":"user", "content":prompt}
             reply = backend.call_model(messages=[*messages, user_msg])
             messages.append(user_msg)
             messages.append({"role":"assistant", "content":reply.content})

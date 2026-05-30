@@ -787,3 +787,70 @@ def run(backend: Backend) -> None: ...   # anything with a matching call_model t
 - ABC **couples** implementations to the abstraction (they import and subclass it); Protocol points the dependency the other way — usually the cleaner seam.
 - `...` (Ellipsis) is the conventional empty body for an abstract/protocol method.
 
+---
+
+## TypedDict — a static shape for dict-shaped data
+
+When the value genuinely **is a dict** (a JSON/wire payload, kwargs, an API's expected input) but you still want the checker to know its keys and value types. `TypedDict` annotates that shape **statically** — at runtime the value is just a plain `dict`, zero cost, no instance.
+
+### Minimal form
+
+```python
+from typing import TypedDict, Literal
+
+class Message(TypedDict):
+    role: Literal["user", "assistant"]
+    content: str
+
+m: Message = {"role": "user", "content": "hello"}   # checked: keys, literals, value types
+```
+
+A typo'd key (`"rol"`), a bad literal (`"system"`), or a wrong value type (`content=123`) is flagged where you write it. `dict` alone catches none of this — it has thrown the structure away.
+
+### Knobs
+
+| Form | Effect |
+| --- | --- |
+| `class M(TypedDict):` | all keys **required** (default, `total=True`) |
+| `class M(TypedDict, total=False):` | all keys optional |
+| `field: Required[T]` / `NotRequired[T]` | per-key override (3.11+, else `typing_extensions`) |
+| `class M2(M):` | inherit + add keys (TypedDicts compose by subclassing) |
+| `M = TypedDict("M", {"a-b": int})` | functional syntax — for keys that aren't valid identifiers |
+
+### Construction — two checked forms
+
+```python
+{"role": "user", "content": "hi"}        # dict literal
+Message(role="user", content="hi")        # call form — nicer errors, typo-safe
+```
+
+### Picking the tool (vs the neighbours)
+
+| Use… | when… |
+| --- | --- |
+| `TypedDict` | the data is/stays a **dict**, built by your own trusted code (static check, no runtime cost) |
+| `@dataclass` | you want an **owned object** with attribute access / behaviour (see *Dataclasses* entry) |
+| `pydantic.BaseModel` | data crosses a **trust boundary** and needs **runtime validation** (raises on bad input) |
+
+Mnemonic from this codebase: `ChatResult` is a **dataclass** (output you construct and read attributes off); a *message* is a **TypedDict** (a payload flowing straight into an HTTP body / SDK).
+
+### Feeding a vendor's typed API (our `messages` case)
+
+The reason this came up: the SDK wants `Iterable[MessageParam]`, and a bare `list[dict]` can't prove it matches.
+
+- `Iterable` is **covariant**, so `list[Message]` → `Iterable[MessageParam]` *iff* `Message` is a subtype of the SDK's `MessageParam` (both are TypedDicts → compared **structurally**, key by key).
+- If your `Message` lines up with the SDK's shape, no cast is needed. If it doesn't *quite* (TypedDict↔TypedDict subtyping is stricter than it looks — see gotchas), the honest escape hatch is a single `cast(...)` at the **one** vendor-boundary call — now casting from a shape you've actually typed, not from `dict`.
+- Don't put the SDK's `MessageParam` in the shared `Backend` Protocol — that leaks one vendor into a neutral interface. Keep a vendor-neutral `Message` in `backend.py`; reconcile at the boundary.
+
+### Gotchas
+
+- **Static-only — no runtime validation.** A `TypedDict` annotation is a *promise*; nothing checks it at runtime. If the dict came from untrusted JSON, the annotation can be a lie — reach for Pydantic / a runtime check there.
+- **No `isinstance`.** `isinstance(x, Message)` raises `TypeError` — there's no class to check against. (Same static-only nature as `Protocol`.)
+- **Fields are mutable → invariant in subtyping.** Value types must match, not merely be assignable, when checking one TypedDict against another (the same mutable-attribute invariance that bit the client `Protocol`).
+- **Access is `m["role"]`, not `m.role`** — it's a dict.
+
+### When NOT to use
+
+- Need runtime validation / coercion → `pydantic` or `attrs`.
+- Want an object with methods, defaults below a defaulted field, attribute access → `@dataclass` / `NamedTuple`.
+
