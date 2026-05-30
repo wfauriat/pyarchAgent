@@ -3,6 +3,7 @@ from collections import namedtuple
 import pytest
 import httpx
 import anthropic
+from anthropic.types import TextBlock
 
 from agentAPI.anthropic_backend import AnthropicBackend
 from agentAPI.backend import (Message,
@@ -19,10 +20,9 @@ class FakeMessage():
         self.sent_kwargs = kwargs         # capture what call_model built
         if self._create_error:
             raise self._create_error
-        Content = namedtuple("Content", ["text"])
         Usage = namedtuple("Usage", ["input_tokens", "output_tokens"])
         Response = namedtuple("Response", ["content", "usage"])
-        return Response(content=[Content(text="hi")],
+        return Response(content=[TextBlock(text="hi", type="text")],
                         usage=Usage(input_tokens=12, output_tokens=4))
 
 

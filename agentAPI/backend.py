@@ -10,6 +10,7 @@ class ChatResult:
 class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
 class BackendResponseError(BackendError): pass
+class BackendContractError(BackendError): pass
 
 class Message(TypedDict):
     role: Literal["user", "assistant"]

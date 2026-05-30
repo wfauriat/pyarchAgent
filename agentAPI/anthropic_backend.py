@@ -1,10 +1,11 @@
 from typing import Any, Protocol, cast
 from dotenv import load_dotenv
 import anthropic
-from anthropic.types import MessageParam
+from anthropic.types import MessageParam, TextBlock
 
 from .backend import (ChatResult, Message,
-                      BackendConnectionError, BackendResponseError)
+                      BackendConnectionError, BackendResponseError,
+                      BackendContractError)
 
 
 class _Messages(Protocol):
@@ -44,7 +45,13 @@ class AnthropicBackend():
                 messages=cast(list[MessageParam], messages),
                 system=system,
             )
-            return ChatResult(content=response.content[0].text,
+            block = response.content[0]
+            if not isinstance(block, TextBlock):
+                raise BackendContractError(
+                    f"Expected a single text response, got "
+                    f"{type(block)}")
+            else:
+                return ChatResult(content=block.text,
                             tokens_in=response.usage.input_tokens,
                             tokens_out=response.usage.output_tokens)
         except anthropic.APIConnectionError as e:
