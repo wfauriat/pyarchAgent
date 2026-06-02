@@ -3,9 +3,10 @@ from dotenv import load_dotenv
 import logging
 
 import anthropic
-from anthropic.types import MessageParam, TextBlock
+from anthropic.types import (
+    MessageParam, TextBlock, ToolUseBlock, ToolUnionParam)
 
-from .backend import (ChatResult, Message,
+from .backend import (ChatResult, Message, StopReason, ToolCall,
                       BackendConnectionError, BackendResponseError,
                       BackendContractError)
 
@@ -21,8 +22,31 @@ class _AnthropicClient(Protocol):
 
 DEFAULT_SYSTEM = (
     "you are a helpful assistant that answers questions and"
-    " provides information."
+    " provides information. You have access to tools,"
+    "use them if you feel it is appropriate or you are asked to."
 )
+
+TOOLS: list[ToolUnionParam] = [
+    {
+        "name": "get_weather",
+        "description": "Provide a description of the current weather in a given city",
+        "input_schema": {
+            "type": "object",
+            "properties": 
+            {
+                "city": {"type": "string"}
+            },
+            "required": ["city"]
+        }
+    }
+]
+
+_STOP_REASONS = {
+    "end_turn": StopReason.END,
+    "tool_use": StopReason.TOOL,
+    "max_tokens": StopReason.MAX_TOKENS,
+    "stop_sequence": StopReason.END,
+}
 
 class AnthropicBackend():
     def __init__(self,
@@ -47,22 +71,39 @@ class AnthropicBackend():
             response = self.client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
-                messages=cast(list[MessageParam], messages),
                 system=system,
+                tools=TOOLS,
+                tool_choice={"type": "auto",
+                             "disable_parallel_tool_use": True},
+                messages=cast(list[MessageParam], messages)
             )
-            block = response.content[0]
             logger.debug(
                 "Response received from anthropic, "
                 "Tokens in: %d, Tokens out: %d",
                 response.usage.input_tokens, response.usage.output_tokens)
-            if not isinstance(block, TextBlock):
+            text_list: list[TextBlock]= []
+            tools_list: list[ToolUseBlock] = []
+            for block in response.content:
+                if isinstance(block, TextBlock):
+                    text_list.append(block)
+                if isinstance(block, ToolUseBlock):
+                    tools_list.append(block)
+            raw_stop = response.stop_reason
+            if raw_stop is None:
                 raise BackendContractError(
-                    f"Expected a single text response, got "
-                    f"{type(block)}")
-            else:
-                return ChatResult(content=block.text,
-                            tokens_in=response.usage.input_tokens,
-                            tokens_out=response.usage.output_tokens)
+                    "Anthropic response has no stop_reason")
+            logger.debug(tools_list)
+            return ChatResult(
+                    stop_reason=_STOP_REASONS[raw_stop],
+                    content="".join(b.text for b in text_list),
+                    tokens_in=response.usage.input_tokens,
+                    tokens_out=response.usage.output_tokens,
+                    tool_calls=tuple([ToolCall(
+                        id=tc.id,
+                        name=tc.name,
+                        arguments=tc.input
+                        ) for tc in tools_list
+                ]))
         except anthropic.APIConnectionError as e:
             raise BackendConnectionError(
                 f"Could not reach Anthropic : {str(e)}") from e

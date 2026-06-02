@@ -3,27 +3,32 @@ from collections import namedtuple
 import pytest
 import httpx
 import anthropic
-from anthropic.types import TextBlock
+from anthropic.types import TextBlock, ToolUseBlock
 
 from agentAPI.anthropic_backend import AnthropicBackend
-from agentAPI.backend import (Message,
+from agentAPI.backend import (Message, StopReason, ToolCall,
     BackendConnectionError, BackendResponseError)
 
 MOCK_MESSAGE: list[Message] = [{"role": "user", "content": "hello"}]
 
 
 class FakeMessage():
-    def __init__(self, *, create_error=None):
+    def __init__(self, *, create_error=None, content=None,
+                 stop_reason="end_turn"):
         self._create_error = create_error
+        self._content = ([TextBlock(text="hi", type="text")]
+                         if content is None else content)
+        self._stop_reason = stop_reason
 
     def create(self, **kwargs):
         self.sent_kwargs = kwargs
         if self._create_error:
             raise self._create_error
         Usage = namedtuple("Usage", ["input_tokens", "output_tokens"])
-        Response = namedtuple("Response", ["content", "usage"])
-        return Response(content=[TextBlock(text="hi", type="text")],
-                        usage=Usage(input_tokens=12, output_tokens=4))
+        Response = namedtuple("Response", ["content", "usage", "stop_reason"])
+        return Response(content=self._content,
+                        usage=Usage(input_tokens=12, output_tokens=4),
+                        stop_reason=self._stop_reason)
 
 
 class FakeClient():
@@ -42,9 +47,31 @@ def _api_status_error(status_code):
 def test_call_model_parses_successful_response():
     backend = AnthropicBackend(client=FakeClient(FakeMessage()))
     reply = backend.call_model(messages=MOCK_MESSAGE)
+    assert reply.stop_reason == StopReason.END
     assert reply.content == "hi", f"Expected 'hi', got {reply.content!r}"
     assert reply.tokens_in == 12, f"Expected 12, got {reply.tokens_in!r}"
     assert reply.tokens_out == 4, f"Expected 4, got {reply.tokens_out!r}"
+    assert reply.tool_calls == ()
+
+
+def test_call_model_parses_tool_use_response():
+    tool_block = ToolUseBlock(id="toolu_1", name="get_weather",
+                              input={"city": "Paris"}, type="tool_use")
+    backend = AnthropicBackend(client=FakeClient(
+        FakeMessage(content=[tool_block], stop_reason="tool_use")))
+    reply = backend.call_model(messages=MOCK_MESSAGE)
+    assert reply.stop_reason == StopReason.TOOL
+    assert reply.content == ""
+    assert reply.tool_calls == (
+        ToolCall(id="toolu_1", name="get_weather",
+                 arguments={"city": "Paris"}),)
+
+
+def test_call_model_maps_max_tokens_stop_reason():
+    backend = AnthropicBackend(client=FakeClient(
+        FakeMessage(stop_reason="max_tokens")))
+    reply = backend.call_model(messages=MOCK_MESSAGE)
+    assert reply.stop_reason == StopReason.MAX_TOKENS
 
 
 def test_call_model_raises_connection_error_when_create_fails():
