@@ -1,5 +1,5 @@
 from dataclasses import dataclass 
-from typing import Any, Protocol, TypedDict, Literal
+from typing import Any, Protocol
 from enum import Enum
 
 @dataclass(frozen=True)
@@ -7,6 +7,20 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
+
+@dataclass(frozen=True)
+class UserMessage: 
+    content: str
+@dataclass(frozen=True)
+class AssistantMessage: 
+    content: str 
+    tool_calls: tuple[ToolCall, ...] = ()
+@dataclass(frozen=True)
+class ToolResultMessage: 
+    tool_call: ToolCall
+    content: str
+
+Message = UserMessage | AssistantMessage | ToolResultMessage
 
 class StopReason(Enum):
     END = "end"
@@ -25,10 +39,6 @@ class BackendError(Exception): pass
 class BackendConnectionError(BackendError): pass
 class BackendResponseError(BackendError): pass
 class BackendContractError(BackendError): pass
-
-class Message(TypedDict):
-    role: Literal["user", "assistant"]
-    content: str
 
 class Backend(Protocol):
     def call_model(self,

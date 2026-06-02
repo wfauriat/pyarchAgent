@@ -5,11 +5,12 @@ import httpx
 import anthropic
 from anthropic.types import TextBlock, ToolUseBlock
 
-from agentAPI.anthropic_backend import AnthropicBackend
+from agentAPI.anthropic_backend import AnthropicBackend, _to_anthropic_messages
 from agentAPI.backend import (Message, StopReason, ToolCall,
+    UserMessage, AssistantMessage, ToolResultMessage,
     BackendConnectionError, BackendResponseError)
 
-MOCK_MESSAGE: list[Message] = [{"role": "user", "content": "hello"}]
+MOCK_MESSAGE: list[Message] = [UserMessage("hello")]
 
 
 class FakeMessage():
@@ -106,7 +107,7 @@ def test_call_model_sends_system_and_messages_in_payload():
     backend.call_model(messages=MOCK_MESSAGE)
     sent = message.sent_kwargs
     assert sent["system"] == "be terse"
-    assert sent["messages"] == MOCK_MESSAGE
+    assert sent["messages"] == [{"role": "user", "content": "hello"}]
 
 
 def test_call_model_per_call_system_overrides_default():
@@ -117,4 +118,25 @@ def test_call_model_per_call_system_overrides_default():
     backend.call_model(messages=MOCK_MESSAGE, system="be terse")
     sent = message.sent_kwargs
     assert sent["system"] == "be terse"
-    assert sent["messages"] == MOCK_MESSAGE
+    assert sent["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_to_anthropic_messages_renders_tool_round_trip():
+    tc = ToolCall(id="toolu_1", name="get_weather", arguments={"city": "Paris"})
+    history = [
+        UserMessage("weather?"),
+        AssistantMessage("let me check", (tc,)),
+        ToolResultMessage(tc, "sunny"),
+    ]
+    assert _to_anthropic_messages(history) == [
+        {"role": "user", "content": "weather?"},
+        {"role": "assistant", "content": [
+            {"type": "text", "text": "let me check"},
+            {"type": "tool_use", "id": "toolu_1", "name": "get_weather",
+             "input": {"city": "Paris"}},
+        ]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_1",
+             "content": "sunny"},
+        ]},
+    ]

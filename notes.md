@@ -1084,3 +1084,76 @@ Rule of thumb (this codebase): **`Literal`** when the value flows straight onto 
 - Open/extensible set (plugins add members) → Enums are closed; use a registry/dict.
 - A single one-off constant → a module-level constant is enough.
 
+---
+
+## `match` / `case` — structural pattern matching
+
+(3.10+) Dispatch on the **shape** of a value, not just its value. Pairs naturally with a **closed set of types** — a discriminated union of dataclasses, an `Enum` — where each `case` handles one variant and `assert_never` proves you covered them all. It's the clean alternative to an `isinstance`/`if-elif` tree that *also extracts* fields in the same step.
+
+### Minimal form
+
+```python
+match msg:
+    case UserMessage(content=c):          # isinstance + pull out .content
+        send_text(c)
+    case AssistantMessage(content=c, tool_calls=tc):
+        ...
+    case ToolResultMessage(tool_call=call, content=c):
+        ...
+    case _:                                # wildcard — the default
+        assert_never(msg)
+```
+
+First matching `case` wins, runs, and the `match` exits — **no fall-through, no `break`**.
+
+### Pattern kinds
+
+| Pattern | Example | Matches when… | Binds |
+| --- | --- | --- | --- |
+| literal | `case 0:` / `case "end":` | equal by value | — |
+| capture | `case x:` | **always** | `x` ← the value |
+| wildcard | `case _:` | always | nothing (the one name that doesn't bind) |
+| class | `case Point(x=px, y=py):` | `isinstance` + attrs extract | `px`, `py` |
+| OR | `case "q" \| "quit":` | any alternative | — |
+| guard | `case Point(x=x) if x > 0:` | pattern **and** condition | `x` |
+| sequence | `case [a, b]:` / `case [first, *rest]:` | length + element shapes | elements |
+| mapping | `case {"role": r}:` | key present (extra keys OK) | `r` |
+| as | `case [Point()] as p:` | sub-pattern, keep whole | `p` |
+
+### Class patterns — two ways to extract
+
+```python
+case UserMessage(content=c)   # keyword: always works, explicit — prefer this
+case Point(px, py)            # positional: needs __match_args__
+```
+
+Dataclasses (and `NamedTuple`) generate `__match_args__` from field order, so positional works on them. Keyword sub-patterns don't need it and read clearer for one or two fields.
+
+### Exhaustiveness — `assert_never`
+
+```python
+from typing import assert_never
+
+match msg:
+    case UserMessage(): ...
+    case AssistantMessage(): ...
+    case ToolResultMessage(): ...
+    case _:
+        assert_never(msg)   # pass the VALUE, not a string
+```
+
+In the `_` arm a checker has narrowed `msg` to `Never` (every variant handled), so `assert_never(msg)` type-checks. Add a 4th variant to the union later and `msg` is no longer `Never` → pyright flags **this line**, naming the unhandled type. A self-removing TODO across every `match` over the union. (At runtime it raises `AssertionError` if ever reached.)
+
+### Gotchas
+
+- **Capture vs. compare — the #1 footgun.** A bare lowercase name *captures* (always matches, binds the value); it does **not** compare against a variable/constant of that name. `case TOOL:` binds everything to a new `TOOL` and shadows the rest. To match a constant, use a **dotted** name or a literal: `case StopReason.TOOL:`, `case mod.LIMIT:`, `case "tool":`.
+- **A `match` with no matching `case` is a silent no-op** — not an error. That's why a `case _:` (or `assert_never`) matters when you expect total coverage.
+- **Class pattern ≠ construction.** `case Point(x=px)` *reads* attributes via `__match_args__`/keywords; it doesn't call `__init__`. Positional patterns on a class with no `__match_args__` raise `TypeError`.
+- **Mapping patterns are open** — `case {"role": r}:` matches any dict that *has* `"role"`; extra keys are fine. Sequence patterns, by contrast, check length.
+
+### When NOT to use
+
+- One literal compare or a simple range → `if`/`elif` is lighter.
+- Matching on type alone with no extraction → a short `isinstance` chain can read just as clear.
+- An **open/growing** set of cases → `match` wants a closed set; reach for a dict dispatch / registry instead.
+

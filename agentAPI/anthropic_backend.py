@@ -1,4 +1,4 @@
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, assert_never
 from dotenv import load_dotenv
 import logging
 
@@ -6,9 +6,11 @@ import anthropic
 from anthropic.types import (
     MessageParam, TextBlock, ToolUseBlock, ToolUnionParam)
 
-from .backend import (ChatResult, Message, StopReason, ToolCall,
-                      BackendConnectionError, BackendResponseError,
-                      BackendContractError)
+from .backend import (
+    UserMessage, AssistantMessage, ToolResultMessage, Message, 
+    ToolCall, StopReason, ChatResult,
+    BackendConnectionError, BackendContractError
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,39 @@ _STOP_REASONS = {
     "stop_sequence": StopReason.END,
 }
 
+
+def _to_anthropic_messages(messages: list[Message]) -> list[MessageParam]:
+    msg_list = []
+    for m in messages:
+        match m:
+            case UserMessage(content=c):
+                msg_list.append({"role": "user", "content": c})
+            case AssistantMessage(content=c, tool_calls= tc):
+                content_block = [{"type": "text", "text": c}] if c else []
+                if tc:
+                    tool_blocks = [{"type": "tool_use",
+                                    "id": call.id,
+                                    "name": call.name,
+                                    "input": call.arguments}
+                                    for call in tc]
+                    msg_list.append({"role": "assistant",
+                                "content": [*content_block, *tool_blocks]})
+                else:
+                    msg_list.append({"role": "assistant",
+                                     "content": content_block})                   
+            case ToolResultMessage(tool_call=tc, content=c):
+                msg_list.append({"role": "user",
+                                 "content":[{
+                                     "type":"tool_result",
+                                     "tool_use_id": tc.id,
+                                     "content":c,
+                                 }]
+                            })
+            case _:
+                assert_never(m)
+
+    return msg_list
+
 class AnthropicBackend():
     def __init__(self,
             system_prompt: str | None = None,
@@ -75,7 +110,8 @@ class AnthropicBackend():
                 tools=TOOLS,
                 tool_choice={"type": "auto",
                              "disable_parallel_tool_use": True},
-                messages=cast(list[MessageParam], messages)
+                messages=cast(list[MessageParam], 
+                              _to_anthropic_messages(messages))
             )
             logger.debug(
                 "Response received from anthropic, "

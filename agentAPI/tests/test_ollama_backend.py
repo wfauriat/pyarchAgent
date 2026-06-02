@@ -3,11 +3,12 @@ from typing import Any
 import pytest
 import httpx
 
-from agentAPI.ollama_backend import OllamaBackend
+from agentAPI.ollama_backend import OllamaBackend, _to_ollama_messages
 from agentAPI.backend import (Message, StopReason, ToolCall,
+    UserMessage, AssistantMessage, ToolResultMessage,
     BackendConnectionError, BackendResponseError)
 
-MOCK_MESSAGE: list[Message] = [{"role": "user", "content":"hello"}]
+MOCK_MESSAGE: list[Message] = [UserMessage("hello")]
 
 # Mirrors a real Ollama /api/chat response (note: done_reason is always
 # present on a completed non-streaming response).
@@ -111,4 +112,20 @@ def test_call_model_sends_resolved_system_message_in_payload():
     backend.call_model(messages=MOCK_MESSAGE, system="be terse")
     sent = client.sent_payload
     assert sent["messages"][0] == {"role": "system", "content": "be terse"}
-    assert sent["messages"][1:] == MOCK_MESSAGE
+    assert sent["messages"][1:] == [{"role": "user", "content": "hello"}]
+
+
+def test_to_ollama_messages_renders_tool_round_trip():
+    tc = ToolCall(id="call_1", name="get_weather", arguments={"city": "Paris"})
+    history = [
+        UserMessage("weather?"),
+        AssistantMessage("let me check", (tc,)),
+        ToolResultMessage(tc, "sunny"),
+    ]
+    assert _to_ollama_messages(history) == [
+        {"role": "user", "content": "weather?"},
+        {"role": "assistant", "content": "let me check",
+         "tool_calls": [{"function": {"name": "get_weather",
+                                      "arguments": {"city": "Paris"}}}]},
+        {"role": "tool", "content": "sunny", "tool_name": "get_weather"},
+    ]

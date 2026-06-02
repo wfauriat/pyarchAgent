@@ -1,9 +1,12 @@
-from typing import Any, Protocol
+from typing import Any, Protocol, assert_never
 import logging
 import httpx
 
-from .backend import (ToolCall, Message, ChatResult, StopReason, 
-                      BackendConnectionError, BackendResponseError)
+from .backend import (
+    UserMessage, AssistantMessage, ToolResultMessage, Message,
+    ToolCall, StopReason, ChatResult,
+    BackendConnectionError, BackendResponseError
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,31 @@ TOOLS = {
     }
 }
 
+
+def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
+    msg_list = []
+    for m in messages:
+        match m:
+            case UserMessage(content=c):
+                msg_list.append({"role": "user", "content": c})
+            case AssistantMessage(content=c, tool_calls= tc):
+                if tc:
+                    tool_dict = [{"function": {"name": call.name,
+                                            "arguments": call.arguments}}
+                                for call in tc]
+                    msg_list.append({"role": "assistant", "content": c,
+                                     "tool_calls": tool_dict})
+                else:
+                    msg_list.append({"role": "assistant", "content": c})                   
+            case ToolResultMessage(tool_call=tc, content=c):
+                msg_list.append({"role": "tool", "content":c,
+                                 "tool_name": tc.name})
+            case _:
+                assert_never(m)
+
+    return msg_list
+
+
 class OllamaBackend():
     def __init__(self, *,
                  system_prompt: str | None = None,
@@ -72,7 +100,8 @@ class OllamaBackend():
             "stream": False,
             "think": self._think,
             "messages": [{"role": "system",
-                          "content": system}, *messages],
+                          "content": system},
+                          *_to_ollama_messages(messages)],
             "tools": [TOOLS]
         }
         tools_list = ()

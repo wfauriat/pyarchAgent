@@ -9,7 +9,7 @@ logging.basicConfig(
 logging.getLogger("agentAPI").setLevel(logging.DEBUG)
 
 from agentAPI import OllamaBackend, AnthropicBackend
-from agentAPI import Backend, Message
+from agentAPI import Backend, Message, UserMessage, AssistantMessage
 
 
 def repl(backend: Backend):
@@ -23,10 +23,10 @@ def repl(backend: Backend):
             if prompt.strip().lower() == "quit" or prompt == "/quit":
                 print("\nbye")
                 break
-            user_msg: Message = {"role":"user", "content":prompt}
+            user_msg = UserMessage(content=prompt)
             reply = backend.call_model(messages=[*messages, user_msg])
             messages.append(user_msg)
-            messages.append({"role":"assistant", "content":reply.content})
+            messages.append(AssistantMessage(content=reply.content))
             print("\n", "="*80)
             print("Assistant:")
             print("="*80)
