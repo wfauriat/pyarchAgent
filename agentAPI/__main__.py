@@ -9,33 +9,7 @@ logging.basicConfig(
 logging.getLogger("agentAPI").setLevel(logging.DEBUG)
 
 from agentAPI import OllamaBackend, AnthropicBackend, MistralBackend
-from agentAPI import Backend, Message, UserMessage, AssistantMessage
-
-
-def repl(backend: Backend):
-    messages: list[Message] = []
-    while True:
-        print("="*80)
-        print("User:")
-        print("="*80)
-        try:
-            prompt = input("> ")
-            if prompt.strip().lower() == "quit" or prompt == "/quit":
-                print("\nbye")
-                break
-            user_msg = UserMessage(content=prompt)
-            reply = backend.call_model(messages=[*messages, user_msg])
-            messages.append(user_msg)
-            messages.append(AssistantMessage(content=reply.content))
-            print("\n", "="*80)
-            print("Assistant:")
-            print("="*80)
-            print(reply.content, "\n")
-            print(f"tokens_in: {reply.tokens_in}, "
-                f"tokens_out: {reply.tokens_out}")
-        except (KeyboardInterrupt, EOFError):
-            print("\nbye")
-            break
+from agentAPI import Agent
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Chat CLI")
@@ -45,11 +19,11 @@ if __name__ == "__main__":
                         help="choice of backend")
     args = parser.parse_args()
     if args.backend == "ollama":
-        ollama_instance = OllamaBackend()
-        repl(ollama_instance)
+        ollama_instance = Agent(OllamaBackend())
+        ollama_instance.repl()
     elif args.backend == "anthropic":
-        anthropic_instance = AnthropicBackend()
-        repl(anthropic_instance)
+        anthropic_instance = Agent(AnthropicBackend())
+        anthropic_instance.repl()
     elif args.backend == "mistral":
-        mistral_instance = MistralBackend()
-        repl(mistral_instance)
+        mistral_instance = Agent(MistralBackend())
+        mistral_instance.repl()

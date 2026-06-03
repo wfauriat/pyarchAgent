@@ -26,22 +26,37 @@ DEFAULT_SYSTEM = (
     "use them if you feel it is appropriate or you are asked to."
 )
 
-TOOLS = {
+
+TOOLS = [
+    {
     "type": "function",
     "function": {
         "name": "get_weather",
         "description": "Provide a description of the current weather in a given city",
         "parameters": {
             "type": "object",
-            "properties": 
-            {
+            "properties": {
                 "city": {"type": "string"}
             },
             "required": ["city"]
+            }
+        }
+    },
+    {
+    "type": "function",
+    "function": {
+        "name": "run_bash",
+        "description": "Run subprocess inside python to execute bash (unix) commands. Results is readable form stdout and stderr.",
+        "parameters": {
+            "type" : "object",
+            "properties": {
+                "command": {"type": "string"}
+            },
+            "required": ["command"]
         }
     }
 }
-
+]
 
 def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
     msg_list = []
@@ -102,7 +117,7 @@ class OllamaBackend():
             "messages": [{"role": "system",
                           "content": system},
                           *_to_ollama_messages(messages)],
-            "tools": [TOOLS]
+            "tools": TOOLS,
         }
         tools_list = ()
         try:

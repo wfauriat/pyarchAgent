@@ -35,15 +35,14 @@ class ChatResult:
     tokens_out: int
     tool_calls: tuple[ToolCall, ...] = ()
 
-class BackendError(Exception): pass
-class BackendConnectionError(BackendError): pass
-class BackendResponseError(BackendError): pass
-class BackendContractError(BackendError): pass
-
 class Backend(Protocol):
     def call_model(self,
         messages: list[Message],
         *,
-        system: str | None = None
+        system: str | None = None,
         ) -> ChatResult: ...
     
+class BackendError(Exception): pass
+class BackendConnectionError(BackendError): pass
+class BackendResponseError(BackendError): pass
+class BackendContractError(BackendError): pass

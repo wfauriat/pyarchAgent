@@ -1,8 +1,11 @@
 import subprocess
-import argparse
-
 from dataclasses import dataclass
+from typing import Callable
 
+
+DISPATCH: dict[str, Callable] = {
+    "run_bash": lambda command: run_bash(command).render()
+}
 
 @dataclass(frozen=True)
 class BashResult:
@@ -50,14 +53,3 @@ def run_bash(command: str) -> BashResult:
     except subprocess.TimeoutExpired as e:
         return BashResult(-9, _normalize(e.stdout),
                           _normalize(e.stderr), timeout=True)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="subprocess run")
-    parser.add_argument("cmd")
-    args = parser.parse_args()
-    result = run_bash(args.cmd)
-
-    print(result.render())
-
-
-
