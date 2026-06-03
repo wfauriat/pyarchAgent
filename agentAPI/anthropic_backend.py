@@ -9,7 +9,7 @@ from anthropic.types import (
 from .backend import (
     UserMessage, AssistantMessage, ToolResultMessage, Message, 
     ToolCall, StopReason, ChatResult,
-    BackendConnectionError, BackendContractError
+    BackendConnectionError, BackendContractError, BackendResponseError
     )
 
 
@@ -143,3 +143,7 @@ class AnthropicBackend():
         except anthropic.APIConnectionError as e:
             raise BackendConnectionError(
                 f"Could not reach Anthropic : {str(e)}") from e
+        except anthropic.APIStatusError as e:
+            raise BackendResponseError(
+                f"Anthropic returned HTTP {e.status_code}: {e.body}"
+            ) from e

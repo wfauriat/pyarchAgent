@@ -86,11 +86,6 @@ def test_call_model_raises_connection_error_when_create_fails():
     assert isinstance(excinfo.value.__cause__, anthropic.APIConnectionError)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="protocol layer not implemented: call_model does not yet "
-           "translate anthropic.APIStatusError -> BackendResponseError",
-)
 def test_call_model_raises_response_error_on_api_status_error():
     backend = AnthropicBackend(client=FakeClient(
         FakeMessage(create_error=_api_status_error(429))))
