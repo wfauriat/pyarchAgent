@@ -1,11 +1,12 @@
 PYTHON = /opt/venvs/pyDS/bin/python
 
-.PHONY: help agentAPI ollama_backend anthropic_backend test
+.PHONY: help agentAPI chat_ollama chat_anthropic chat_mistral test
 
 help:
 	@echo "====help===="
-	@echo "make ollama_backend"
-	@echo "make anthropic_backend"
+	@echo "make chat_ollama"
+	@echo "make chat_anthropic"
+	@echo "make chat_mistral"
 	@echo "make test"
 	@echo "make agentAPI"	
 	@echo "============"
@@ -18,6 +19,9 @@ chat_ollama:
 
 chat_anthropic:
 	$(PYTHON) -m agentAPI -b "anthropic"
+
+chat_mistral:
+	$(PYTHON) -m agentAPI -b "mistral"
 
 test:
 	$(PYTHON) -m pytest -v
