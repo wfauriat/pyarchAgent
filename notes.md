@@ -1157,3 +1157,144 @@ In the `_` arm a checker has narrowed `msg` to `Never` (every variant handled), 
 - Matching on type alone with no extraction → a short `isinstance` chain can read just as clear.
 - An **open/growing** set of cases → `match` wants a closed set; reach for a dict dispatch / registry instead.
 
+---
+
+## `subprocess` + bash basics — running shell commands from Python
+
+Launch an external program, wire its three streams, read its exit status back. `subprocess.run(...)` is the high-level **blocking** entry point — it starts the process, waits, and returns a `CompletedProcess`. (It's built on `subprocess.Popen`; drop to `Popen` only for streaming / long-lived / interactive processes.) This is the machinery under the agent's `run_bash` tool.
+
+### `subprocess.run` — the call
+
+```python
+import subprocess
+
+out = subprocess.run(
+    ["bash", "-c", "echo hi"],    # argv LIST — not one string (unless shell=True)
+    capture_output=True,          # capture stdout+stderr (= stdout=PIPE, stderr=PIPE)
+    text=True,                    # decode bytes → str (alias: universal_newlines)
+    timeout=10,                   # seconds; raises TimeoutExpired and kills the child
+    check=False,                  # True → raise CalledProcessError on non-zero exit
+    stdin=subprocess.DEVNULL,     # instant EOF — don't hang waiting on input
+)
+out.returncode   # 0
+out.stdout       # "hi\n"
+out.stderr       # ""
+```
+
+### Key kwargs
+
+| Kwarg | Effect |
+| --- | --- |
+| `args` | a **list** (`["ls", "-l"]`) → no shell, no injection; or a **str** with `shell=True` |
+| `capture_output=True` | shorthand for `stdout=PIPE, stderr=PIPE`; can't mix with explicit `stdout=`/`stderr=` |
+| `text=True` | decode stdout/stderr/stdin as `str` (locale or `encoding=`); off → raw `bytes` |
+| `input=` | bytes/str fed to the child's stdin, then EOF (mutually exclusive with `stdin=`) |
+| `timeout=` | kill the child + raise `TimeoutExpired` after N seconds |
+| `check=True` | raise `CalledProcessError` if exit code ≠ 0 |
+| `cwd=` | run in a different working directory |
+| `env=` | replace the environment (dict); default inherits the parent's |
+| `encoding=` / `errors=` | decoding control; `errors="replace"` survives non-UTF-8 bytes |
+
+### The result — `CompletedProcess`
+
+| Attr | Is |
+| --- | --- |
+| `.args` | the command that ran |
+| `.returncode` | exit status (see codes below) |
+| `.stdout` | captured stdout — `str` if `text=True`, else `bytes`, else `None` if not captured |
+| `.stderr` | captured stderr (same rules) |
+
+### The three streams
+
+| Stream | FD | Default | Wire it with |
+| --- | --- | --- | --- |
+| **stdin** | 0 | inherits the terminal | `stdin=DEVNULL` (EOF), `input="data"`, `stdin=PIPE` |
+| **stdout** | 1 | inherits the terminal | `capture_output=True` / `stdout=PIPE`, `stdout=DEVNULL` (discard) |
+| **stderr** | 2 | inherits the terminal | as stdout; `stderr=subprocess.STDOUT` **merges** it into stdout |
+
+- `subprocess.DEVNULL` — wire to `/dev/null`: stdin → instant EOF, stdout/stderr → discarded.
+- `subprocess.PIPE` — capture into the result (what `capture_output` sets for you).
+- `subprocess.STDOUT` — only valid for `stderr=`; folds stderr into the stdout stream (interleaved, one capture).
+- **Why `stdin=DEVNULL` for a tool runner:** a command that reads stdin (`cat`, `grep foo`, a REPL) otherwise **blocks forever** waiting for input no human is there to type — `timeout` becomes the only escape. DEVNULL hands it EOF immediately.
+
+### Exit / return codes
+
+Convention: **0 = success, non-zero = failure.** Beyond that:
+
+| Code | Means |
+| --- | --- |
+| `0` | success |
+| `1` | generic failure — a real, common code; don't reuse it as a sentinel |
+| `2` | misuse / bad arguments (many tools); `ls` uses it for "no such file" |
+| `126` | found but not executable |
+| `127` | command not found (shell) |
+| `128+N` | the **shell's** way of saying "killed by signal N" (`130`=SIGINT/Ctrl-C, `137`=SIGKILL, `143`=SIGTERM) |
+| negative `-N` | **Python's** way: `subprocess` reports a child it killed as `returncode = -N` (e.g. `-9` for SIGKILL on timeout) |
+
+The `128+N` vs `-N` split matters: if `bash` runs your command and the *command* is signal-killed, bash exits `128+N`; if `subprocess` kills `bash` itself (timeout), Python's `returncode` is `-N`. That's why `run_bash`'s timeout branch returns `-9`.
+
+### `["bash", "-c", cmd]` vs `shell=True`
+
+| | `run(["bash","-c", cmd])` | `run(cmd, shell=True)` |
+| --- | --- | --- |
+| Shell | **bash** (you named it) | `/bin/sh` — **dash** on Debian/Ubuntu |
+| Features | `[[ ]]`, arrays, process substitution | POSIX-only (sh) |
+| Injection | you opted into a shell deliberately | string interpolation = classic injection hole |
+
+For an agent's bash tool you *want* a shell (pipes, globs) and you want **bash specifically** — so the explicit `["bash","-c", cmd]` is the deliberate choice, not `shell=True`.
+
+### Exceptions
+
+| Raised | When | Carries |
+| --- | --- | --- |
+| `FileNotFoundError` | the executable doesn't exist (no-shell form) | — |
+| `subprocess.CalledProcessError` | `check=True` and exit ≠ 0 | `.returncode`, `.stdout`, `.stderr` |
+| `subprocess.TimeoutExpired` | `timeout` elapsed | `.stdout`/`.stderr` = **partial** output before the kill |
+
+- **`text=True` doesn't always reach the exception.** Observed on CPython: on `TimeoutExpired`, `.stdout`/`.stderr` come back as raw **bytes** (and may be `None`) even though `text=True` decodes the *normal* return path. Normalize before use (`bytes → .decode(errors="replace")`, `None → ""`) — this is exactly what `run_bash._normalize` is for.
+
+### Very basic bash (what flows through the command string)
+
+The string after `bash -c` is ordinary shell. The essentials:
+
+| Syntax | Does |
+| --- | --- |
+| `cmd a b` | run `cmd` with args; options are `-x` / `--long` |
+| `a ; b` | run `a` then `b` (regardless of `a`'s result) |
+| `a && b` | run `b` **only if** `a` succeeded (exit 0) |
+| `a \|\| b` | run `b` **only if** `a` failed (exit ≠ 0) |
+| `a \| b` | **pipe** — `a`'s stdout becomes `b`'s stdin |
+| `a &` | run `a` in the background |
+| `> f` / `>> f` | redirect stdout to file `f` — truncate / append |
+| `2> f` | redirect stderr to a file |
+| `2>&1` | send stderr wherever stdout currently points (merge) |
+| `< f` | feed file `f` as stdin |
+| `$?` | exit code of the last command |
+| `$(cmd)` | command substitution — splice `cmd`'s stdout into the line |
+| `*` `?` `[…]` | filename globs (expanded by the shell, not the command) |
+
+Quoting — the thing that bites command-builders:
+
+| Form | Behavior |
+| --- | --- |
+| `'single'` | fully literal — no `$var`, no `\` escapes |
+| `"double"` | expands `$var`, `$(…)`; keeps internal spaces as one word |
+| `\x` | escape a single character |
+
+### Gotchas
+
+- **`stdin=DEVNULL` or you hang.** The #1 surprise for a non-interactive runner (above).
+- **Capture buffers in memory.** `capture_output=True` reads the *entire* output into RAM — `cat huge.log` / `yes` can blow up. Cap/truncate before handing it on (do it at the render edge, not in `run`).
+- **`check=True` for tools is wrong.** A non-zero exit is information to report, not a Python exception — keep `check=False` and read `.returncode`.
+- **`shell=True` + an f-string = injection.** If you must use a shell, never interpolate untrusted text; prefer the argv list.
+- **`cwd`/`env` don't persist across calls.** Each `run` is a fresh process — `cd /tmp` in one call is gone by the next. A persistent working dir means a long-lived `Popen` shell (a real design fork).
+- **Timeout kills only the direct child.** `bash -c "sleep 100 &"` can orphan the grandchild; killing the whole group needs `start_new_session=True` + a `Popen` you signal yourself (`os.killpg`).
+
+### When `run` isn't enough → `Popen`
+
+- **Stream** output line-by-line as it arrives (not wait for completion) → `Popen` + read its pipes.
+- Long-lived / **interactive** process fed over time → `Popen` + `.stdin.write()`.
+- Kill a whole **process tree** on timeout → `Popen(start_new_session=True)` + `os.killpg`.
+
+`run` covers the launch-wait-collect case — exactly the agent's one-shot bash tool. Reach for `Popen` only when you need streaming or lifecycle control.
+
