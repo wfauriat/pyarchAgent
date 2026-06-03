@@ -4,7 +4,7 @@ from .backend import (
     Backend, ToolCall, ChatResult, StopReason,
     Message, UserMessage, AssistantMessage, ToolResultMessage
 )
-from .tools import DISPATCH
+from .tools import REGISTRY
 
 def _approve_y_n(tool: ToolCall) -> bool:
     print(f"Model wants to run function: {tool.name}")
@@ -25,12 +25,12 @@ class Agent:
 
 
     def _execute(self, tc:ToolCall) -> str:
-        if tc.name not in DISPATCH:
+        if tc.name not in REGISTRY:
             return f"error: unknown tool {tc.name}"
         if not self.approve(tc):
             return "user declined to use this command"
         try:
-            return DISPATCH[tc.name](**tc.arguments)
+            return REGISTRY[tc.name].func(**tc.arguments)
         except Exception as e:
             return f"error: {e}"
     

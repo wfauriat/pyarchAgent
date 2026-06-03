@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Any, Protocol, assert_never
+from typing import Any, Protocol, Iterable, assert_never
 import logging
 import httpx
 
@@ -11,6 +11,8 @@ from .backend import (
     ToolCall, StopReason, ChatResult,
     BackendConnectionError, BackendResponseError
     )
+
+from .tools import REGISTRY, Tool
 
 logger = logging.getLogger(__name__)
 
@@ -30,21 +32,6 @@ DEFAULT_SYSTEM = (
     "use them if you feel it is appropriate or you are asked to."
 )
 
-TOOLS = {
-    "type": "function",
-    "function": {
-        "name": "get_weather",
-        "description": "Provide a description of the current weather in a given city",
-        "parameters": {
-            "type": "object",
-            "properties":
-            {
-                "city": {"type": "string"}
-            },
-            "required": ["city"]
-        }
-    }
-}
 
 _STOP_REASONS = {
     "stop": StopReason.END,
@@ -81,6 +68,13 @@ def _to_mistral_messages(messages: list[Message]) -> list[dict[str, Any]]:
 
     return msg_list
 
+
+def _to_mistral_tools(tools: Iterable[Tool]) -> list[dict[str, Any]]:
+    return [{"type": "function",
+              "function": {"name": t.name,
+                           "description": t.description,
+                            "parameters": t.parameters}}
+        for t in tools]
 
 class MistralBackend():
     def __init__(self, *,
@@ -122,7 +116,7 @@ class MistralBackend():
             "messages": [{"role": "system",
                           "content": system},
                          *_to_mistral_messages(messages)],
-            "tools": [TOOLS],
+            "tools": _to_mistral_tools(REGISTRY.values()),
             "tool_choice": "auto",
         }
         tools_list = ()

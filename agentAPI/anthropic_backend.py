@@ -1,4 +1,4 @@
-from typing import Any, Protocol, cast, assert_never
+from typing import Any, Protocol, Iterable, cast, assert_never
 from dotenv import load_dotenv
 import logging
 
@@ -11,7 +11,7 @@ from .backend import (
     ToolCall, StopReason, ChatResult,
     BackendConnectionError, BackendContractError, BackendResponseError
     )
-
+from .tools import Tool, REGISTRY
 
 logger = logging.getLogger(__name__)
 
@@ -27,21 +27,6 @@ DEFAULT_SYSTEM = (
     " provides information. You have access to tools,"
     "use them if you feel it is appropriate or you are asked to."
 )
-
-TOOLS: list[ToolUnionParam] = [
-    {
-        "name": "get_weather",
-        "description": "Provide a description of the current weather in a given city",
-        "input_schema": {
-            "type": "object",
-            "properties": 
-            {
-                "city": {"type": "string"}
-            },
-            "required": ["city"]
-        }
-    }
-]
 
 _STOP_REASONS = {
     "end_turn": StopReason.END,
@@ -83,6 +68,14 @@ def _to_anthropic_messages(messages: list[Message]) -> list[MessageParam]:
 
     return msg_list
 
+
+def _to_anthropic_tools(tools: Iterable[Tool]) -> list[dict[str, Any]]:
+    return [{"name": t.name,
+             "description": t.description,
+             "input_schema": t.parameters}
+        for t in tools]
+
+
 class AnthropicBackend():
     def __init__(self,
             system_prompt: str | None = None,
@@ -107,7 +100,8 @@ class AnthropicBackend():
                 model=self._model,
                 max_tokens=self._max_tokens,
                 system=system,
-                tools=TOOLS,
+                tools=cast(list[ToolUnionParam],
+                            _to_anthropic_tools(REGISTRY.values())),
                 tool_choice={"type": "auto",
                              "disable_parallel_tool_use": True},
                 messages=cast(list[MessageParam], 

@@ -1,4 +1,4 @@
-from typing import Any, Protocol, assert_never
+from typing import Any, Protocol, Iterable, assert_never
 import logging
 import httpx
 
@@ -7,6 +7,8 @@ from .backend import (
     ToolCall, StopReason, ChatResult,
     BackendConnectionError, BackendResponseError
     )
+
+from .tools import REGISTRY, Tool
 
 logger = logging.getLogger(__name__)
 
@@ -26,37 +28,6 @@ DEFAULT_SYSTEM = (
     "use them if you feel it is appropriate or you are asked to."
 )
 
-
-TOOLS = [
-    {
-    "type": "function",
-    "function": {
-        "name": "get_weather",
-        "description": "Provide a description of the current weather in a given city",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "city": {"type": "string"}
-            },
-            "required": ["city"]
-            }
-        }
-    },
-    {
-    "type": "function",
-    "function": {
-        "name": "run_bash",
-        "description": "Run subprocess inside python to execute bash (unix) commands. Results is readable form stdout and stderr.",
-        "parameters": {
-            "type" : "object",
-            "properties": {
-                "command": {"type": "string"}
-            },
-            "required": ["command"]
-        }
-    }
-}
-]
 
 def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
     msg_list = []
@@ -80,6 +51,13 @@ def _to_ollama_messages(messages: list[Message]) -> list[dict[str, Any]]:
                 assert_never(m)
 
     return msg_list
+
+def _to_ollama_tools(tools: Iterable[Tool]) -> list[dict[str, Any]]:
+    return [{"type": "function",
+              "function": {"name": t.name,
+                           "description": t.description,
+                            "parameters": t.parameters}}
+        for t in tools]
 
 
 class OllamaBackend():
@@ -117,7 +95,7 @@ class OllamaBackend():
             "messages": [{"role": "system",
                           "content": system},
                           *_to_ollama_messages(messages)],
-            "tools": TOOLS,
+            "tools": _to_ollama_tools(REGISTRY.values()),
         }
         tools_list = ()
         try:

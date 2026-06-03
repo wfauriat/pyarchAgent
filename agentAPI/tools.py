@@ -1,11 +1,6 @@
 import subprocess
 from dataclasses import dataclass
-from typing import Callable
-
-
-DISPATCH: dict[str, Callable[..., str]] = {
-    "run_bash": lambda command: run_bash(command).render()
-}
+from typing import Callable, Any
 
 @dataclass(frozen=True)
 class BashResult:
@@ -35,6 +30,24 @@ class BashResult:
         formated_output = "\n".join(output)
         return formated_output
 
+
+@dataclass(frozen=True)
+class Tool:
+    name: str
+    description: str
+    parameters: dict[str, Any]
+    func: Callable[..., str]
+
+_TOOLS = [
+    Tool(name= "run_bash", 
+         description= "Run subprocess inside python to execute bash (unix) commands. Results is readable form stdout and stderr.",
+         parameters={"type" : "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]},
+        func=lambda command: run_bash(command).render())
+]
+
+REGISTRY = {t.name: t for t in _TOOLS}
 
 def _normalize(x: bytes | str | None) -> str:
     if x is None:
