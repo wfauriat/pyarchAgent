@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 
-DISPATCH: dict[str, Callable] = {
+DISPATCH: dict[str, Callable[..., str]] = {
     "run_bash": lambda command: run_bash(command).render()
 }
 

@@ -17,7 +17,8 @@ class FakeMessage():
     def __init__(self, *, create_error=None, content=None,
                  stop_reason="end_turn"):
         self._create_error = create_error
-        self._content = ([TextBlock(text="hi", type="text")]
+        self._content = ([TextBlock.model_validate({"type": "text",
+                                                     "text": "hi"})]
                          if content is None else content)
         self._stop_reason = stop_reason
 

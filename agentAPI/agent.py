@@ -10,17 +10,15 @@ def _approve_y_n(tool: ToolCall) -> bool:
     print(f"Model wants to run function: {tool.name}")
     print(f"with arguments: {tool.arguments}")
     approve = input("Do you approve command: y/n?\n").strip().lower()
-    if approve == "y":
-        return True
-    return False
+    return approve == "y"
 
 
-class Agent():
+class Agent:
     def __init__(
         self,
         backend: Backend,
         approve: Callable[[ToolCall], bool] = _approve_y_n,
-        max_rounds=10):
+        max_rounds: int = 10):
         self.backend = backend
         self.max_rounds = max_rounds
         self.approve = approve
@@ -49,7 +47,7 @@ class Agent():
                 messages.append(ToolResultMessage(tc,
                                     self._execute(tc)))
             result = self.backend.call_model(messages=messages)
-            rounds +=1
+            rounds += 1
         messages.append(AssistantMessage(result.content))
         return result
     
