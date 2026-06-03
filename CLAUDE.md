@@ -1,4 +1,10 @@
-# agentBuilding — Instructions for Claude
+# pyarchAgent — Instructions for Claude
+
+## Origin
+
+This repo was extracted from the `softTrain` training repo on 2026-06-03 via `git subtree split`. It previously lived at `projects/agentBuilding/` on the `project/agent-building` branch; its commit history was carried over (the split rewrote commit hashes — authors, dates, and messages are preserved).
+
+**Implication for paths.** Older commit messages, `SESSIONS.md` entries, and notes may reference the nested path `projects/agentBuilding/...`, the `project/agent-building` branch, or the broader training-repo context (lectures, scaffolds, the parent `CLAUDE.md`). Those are historical and predate the extraction — don't be thrown by them. **From here on this directory is the repo root: write all paths and new log entries root-relative** (e.g. `agentAPI/...`, `SESSIONS.md`), never with the old prefix. Past log entries are append-only history — leave their old paths alone; only new entries follow the root convention.
 
 ## Intent
 
@@ -38,7 +44,7 @@ Relaxed for now. The user is on a low-privilege account with little sensitive da
 
 ## Session log
 
-Keep a lightweight running log at `projects/agentBuilding/SESSIONS.md`. Claude maintains it; the user doesn't have to ask.
+Keep a lightweight running log at `SESSIONS.md` (repo root). Claude maintains it; the user doesn't have to ask.
 
 - Append a dated entry at natural checkpoints: when a meaningful piece lands, when a design decision is made, when a difficulty is hit (and how it was resolved or where it was parked).
 - At the end of a working session, if no checkpoint entry was written during it, write a short close-out entry.
@@ -47,4 +53,4 @@ Keep a lightweight running log at `projects/agentBuilding/SESSIONS.md`. Claude m
 
 ## Git
 
-This project lives on its own branch (`project/agent-building`) inside the larger training repo. Commit small and often, with clear messages. Don't merge back to `main` without an explicit ask.
+This project now lives in its own standalone repo, on the `main` branch (extracted from the `softTrain` training repo — see **Origin** above). Commit small and often, with clear messages.
