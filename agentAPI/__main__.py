@@ -8,7 +8,7 @@ logging.basicConfig(
 )
 logging.getLogger("agentAPI").setLevel(logging.DEBUG)
 
-from agentAPI import OllamaBackend, AnthropicBackend
+from agentAPI import OllamaBackend, AnthropicBackend, MistralBackend
 from agentAPI import Backend, Message, UserMessage, AssistantMessage
 
 
@@ -40,7 +40,7 @@ def repl(backend: Backend):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Chat CLI")
     parser.add_argument("-b", "--backend", type=str, 
-                        choices=["ollama", "anthropic"],
+                        choices=["ollama", "anthropic", "mistral"],
                         default="ollama",
                         help="choice of backend")
     args = parser.parse_args()
@@ -50,3 +50,6 @@ if __name__ == "__main__":
     elif args.backend == "anthropic":
         anthropic_instance = AnthropicBackend()
         repl(anthropic_instance)
+    elif args.backend == "mistral":
+        mistral_instance = MistralBackend()
+        repl(mistral_instance)
