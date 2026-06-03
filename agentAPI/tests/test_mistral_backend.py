@@ -4,7 +4,9 @@ from typing import Any
 import pytest
 import httpx
 
-from agentAPI.mistral_backend import MistralBackend, _to_mistral_messages
+from agentAPI.mistral_backend import (MistralBackend, _to_mistral_messages,
+    _to_mistral_tools)
+from agentAPI.tools import Tool
 from agentAPI.backend import (Message, StopReason, ToolCall,
     UserMessage, AssistantMessage, ToolResultMessage,
     BackendConnectionError, BackendResponseError)
@@ -145,3 +147,18 @@ def test_to_mistral_messages_renders_tool_round_trip():
         {"role": "tool", "content": "sunny", "tool_call_id": "call_1",
          "name": "get_weather"},
     ]
+
+
+def test_to_mistral_tools_renders_openai_envelope():
+    tool = Tool(name="t", description="d",
+                parameters={"type": "object",
+                            "properties": {"x": {"type": "string"}},
+                            "required": ["x"]},
+                func=lambda: "")
+    assert _to_mistral_tools([tool]) == [{
+        "type": "function",
+        "function": {"name": "t", "description": "d",
+                     "parameters": {"type": "object",
+                                    "properties": {"x": {"type": "string"}},
+                                    "required": ["x"]}},
+    }]

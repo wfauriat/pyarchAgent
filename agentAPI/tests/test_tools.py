@@ -1,4 +1,4 @@
-from agentAPI.tools import run_bash, BashResult, _normalize, DISPATCH
+from agentAPI.tools import run_bash, BashResult, _normalize, REGISTRY
 
 
 # --- run_bash: real subprocess, kept to fast deterministic commands ---------
@@ -75,9 +75,9 @@ def test_render_truncates_long_output_with_a_labeled_marker():
         f"expected 100 head + 100 tail kept, got {rendered.count('A')}"
 
 
-# --- DISPATCH: the anti-corruption boundary (returns str, not BashResult) ----
+# --- REGISTRY: the anti-corruption boundary (func returns str, not BashResult)
 
-def test_dispatch_run_bash_returns_rendered_string():
-    out = DISPATCH["run_bash"]("echo hi")
+def test_registry_run_bash_func_returns_rendered_string():
+    out = REGISTRY["run_bash"].func("echo hi")
     assert isinstance(out, str), f"expected str, got {type(out)!r}"
     assert "exit 0" in out and "hi" in out, f"got {out!r}"

@@ -5,7 +5,9 @@ import httpx
 import anthropic
 from anthropic.types import TextBlock, ToolUseBlock
 
-from agentAPI.anthropic_backend import AnthropicBackend, _to_anthropic_messages
+from agentAPI.anthropic_backend import (AnthropicBackend,
+    _to_anthropic_messages, _to_anthropic_tools)
+from agentAPI.tools import Tool
 from agentAPI.backend import (Message, StopReason, ToolCall,
     UserMessage, AssistantMessage, ToolResultMessage,
     BackendConnectionError, BackendResponseError)
@@ -136,3 +138,18 @@ def test_to_anthropic_messages_renders_tool_round_trip():
              "content": "sunny"},
         ]},
     ]
+
+
+def test_to_anthropic_tools_renders_flat_input_schema():
+    tool = Tool(name="t", description="d",
+                parameters={"type": "object",
+                            "properties": {"x": {"type": "string"}},
+                            "required": ["x"]},
+                func=lambda: "")
+    # flat shape: no function envelope, schema under input_schema not parameters
+    assert _to_anthropic_tools([tool]) == [{
+        "name": "t", "description": "d",
+        "input_schema": {"type": "object",
+                         "properties": {"x": {"type": "string"}},
+                         "required": ["x"]},
+    }]
